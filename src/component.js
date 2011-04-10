@@ -2,17 +2,11 @@
 
 // See the properties declaration for details of constructor arguments.
 //
-Monocle.Component = function (book, id, index, chapters, html) {
-  if (Monocle == this) {
-    return new Monocle.Component(book, id, index, chapters, html);
-  }
+Monocle.Component = function (book, id, index, chapters, source) {
 
-  // Constants.
-  var k = {
-  }
-
-  // Properties.
-  var p = {
+  var API = { constructor: Monocle.Component }
+  var k = API.constants = API.constructor;
+  var p = API.properties = {
     // a back-reference to the public API of the book that owns this component
     book: book,
 
@@ -28,120 +22,274 @@ Monocle.Component = function (book, id, index, chapters, html) {
     //  {
     //     title: str,
     //     fragment: str, // optional anchor id
-    //     page: n        // number of the page on which the chapter begins
+    //     percent: n     // how far into the component the chapter begins
     //  }
     //
-    // NOTE: the page property is calculated by the component - you only need
+    // NOTE: the percent property is calculated by the component - you only need
     // to pass in the title and the optional id string.
-    //
-    // The page property is invalidated by dimensional changes in the reader,
-    // and will be regenerated as soon as possible thereafter.
     //
     chapters: chapters,
 
-    // the HTML provided by dataSource.getComponent() for this component
-    html: html,
-
-    // An array of elements that will hold the elements of this component.
-    //
-    clientNodes: [],
-
-    // An array of arrays of HTML elements -- one for each client node.
-    // Accessed as: elementsForClient[node.index][n]
-    //
-    elementsForClient: [],
-
-    // An array of chunk objects, that split up an elements array into more
-    // manageable slices. A chunk object is defined as:
-    //  {
-    //    firstElementIndex: n,
-    //    lastElementIndex: n,
-    //    firstPageNumber: n,
-    //    lastPageNumber: n
-    //  }
-    //
-    //  This data is invalidated by dimensional changes in the reader, because
-    //  the page numbers may change.
-    //
-    chunks: [],
-
-    // The current dimensions of the client node that holds the elements of
-    // this component. (The assumption is that all client nodes will have
-    // identical dimensions — otherwise nothing will work as expected.)
-    //
-    // Defined as:
-    //
-    //   {
-    //     width: n,            // in pixels
-    //     height: n,           // in pixels
-    //     scrollWidth: n,      // in pixels
-    //     fontSize: s,         // css style property value of the node
-    //     pages: n             // number of pages in this component
-    //   }
-    //
-    // Obviously, this data is invalidated by dimensional changes in the reader.
-    //
-    clientDimensions: []
-  }
-
-  // Methods and properties available to external code.
-  var API = {
-    constructor: Monocle.Component,
-    constants: k,
-    properties: p
+    // the frame provided by dataSource.getComponent() for this component
+    source: source
   }
 
 
-  function initialize() {
-    if (!p.html) {
-      console.log("Accessed an empty component: " + p.id);
-      p.html = "<p></p>"
+  // Makes this component the active component for the pageDiv. There are
+  // several strategies for this (see loadFrame).
+  //
+  // Some strategies are time-consuming (and usually asynchronous), some are
+  // not. When the component has been loaded into the pageDiv's frame, the
+  // callback will be invoked with the pageDiv and this component as arguments.
+  //
+  function applyTo(pageDiv, callback) {
+    var evtData = { 'page': pageDiv, 'source': p.source };
+    pageDiv.m.reader.dispatchEvent('monocle:componentchanging', evtData);
+
+    return loadFrame(
+      pageDiv,
+      function () {
+        setupFrame(pageDiv, pageDiv.m.activeFrame);
+        callback(pageDiv, API);
+      }
+    );
+  }
+
+
+  // Loads this component into the given frame, using one of the following
+  // strategies:
+  //
+  // * HTML - a HTML string
+  // * URL - a URL string
+  // * Nodes - an array of DOM body nodes (NB: no way to populate head)
+  // * Document - a DOM DocumentElement object
+  //
+  function loadFrame(pageDiv, callback) {
+    var frame = pageDiv.m.activeFrame;
+
+    // We own this frame now.
+    frame.m.component = API;
+
+    // Hide the frame while we're changing it.
+    frame.style.visibility = "hidden";
+
+    // Prevent about:blank overriding imported nodes in Firefox.
+    // Disabled again because it seems to result in blank pages in Saf.
+    //frame.contentWindow.stop();
+
+    if (p.source.html || (typeof p.source == "string")) {   // HTML
+      return loadFrameFromHTML(p.source.html || p.source, frame, callback);
+    } else if (p.source.url) {                              // URL
+      return loadFrameFromURL(p.source.url, frame, callback);
+    } else if (p.source.nodes) {                            // NODES
+      return loadFrameFromNodes(p.source.nodes, frame, callback);
+    } else if (p.source.doc) {                              // DOCUMENT
+      return loadFrameFromDocument(p.source.doc, frame, callback);
+    }
+  }
+
+
+  // LOAD STRATEGY: HTML
+  // Loads a HTML string into the given frame, invokes the callback once loaded.
+  //
+  function loadFrameFromHTML(src, frame, callback) {
+    // Compress whitespace.
+    src = src.replace(/\s+/g, ' ');
+
+    // Escape single-quotes.
+    src = src.replace(/\'/g, '\\\'');
+
+    // Remove scripts. (DISABLED -- Monocle should leave this to implementers.)
+    //var scriptFragment = "<script[^>]*>([\\S\\s]*?)<\/script>";
+    //src = src.replace(new RegExp(scriptFragment, 'img'), '');
+
+    // BROWSERHACK: Gecko chokes on the DOCTYPE declaration.
+    if (Monocle.Browser.is.Gecko) {
+      var doctypeFragment = "<!DOCTYPE[^>]*>";
+      src = src.replace(new RegExp(doctypeFragment, 'm'), '');
     }
 
-    var elems = p.elementsForClient[0] = [];
+    src = "javascript: '" + src + "';";
 
-    // Populate the zeroth view of elements with the elements from a
-    // temporary div. Any top-level text node will be inserted into a fresh
-    // div parent before being added to the array -- unless it is blank, in
-    // which case it is discarded. (In this way we ensure that all items
-    // in the array are Elements.)
-    //
-    var tmpDiv = document.createElement('div');
-    tmpDiv.innerHTML = p.html;
-    while (tmpDiv.hasChildNodes()) {
-      var node = tmpDiv.removeChild(tmpDiv.firstChild);
-      if (node.nodeType == 1) {
-        elems.push(node);
-      } else if (node.nodeType == 3 && !node.nodeValue.match(/^\s+$/)) {
-        var elem = document.createElement('div');
-        elem.appendChild(node)
-        elems.push(elem);
+    frame.onload = function () {
+      frame.onload = null;
+      Monocle.defer(callback);
+    }
+    frame.src = src;
+  }
+
+
+  // LOAD STRATEGY: URL
+  // Loads the URL into the given frame, invokes callback once loaded.
+  //
+  function loadFrameFromURL(url, frame, callback) {
+    // If it's a relative path, we need to make it absolute, using the
+    // reader's location (not the active component's location).
+    if (!url.match(/^\//)) {
+      var link = document.createElement('a');
+      link.setAttribute('href', url);
+      url = link.href;
+      delete(link);
+    }
+    frame.onload = function () {
+      frame.onload = null;
+      Monocle.defer(callback);
+    }
+    frame.contentWindow.location.replace(url);
+  }
+
+
+  // LOAD STRATEGY: NODES
+  // Loads the array of DOM nodes into the body of the frame (replacing all
+  // existing nodes), then invokes the callback.
+  //
+  function loadFrameFromNodes(nodes, frame, callback) {
+    var destDoc = frame.contentDocument;
+    destDoc.documentElement.innerHTML = "";
+    var destHd = destDoc.createElement("head");
+    var destBdy = destDoc.createElement("body");
+
+    for (var i = 0; i < nodes.length; ++i) {
+      var node = destDoc.importNode(nodes[i], true);
+      destBdy.appendChild(node);
+    }
+
+    var oldHead = destDoc.getElementsByTagName('head')[0];
+    if (oldHead) {
+      destDoc.documentElement.replaceChild(destHd, oldHead);
+    } else {
+      destDoc.documentElement.appendChild(destHd);
+    }
+    if (destDoc.body) {
+      destDoc.documentElement.replaceChild(destBdy, destDoc.body);
+    } else {
+      destDoc.documentElement.appendChild(destBdy);
+    }
+
+    if (callback) { callback(); }
+  }
+
+
+  // LOAD STRATEGY: DOCUMENT
+  // Replaces the DocumentElement of the given frame with the given srcDoc.
+  // Invokes the callback when loaded.
+  //
+  function loadFrameFromDocument(srcDoc, frame, callback) {
+    var destDoc = frame.contentDocument;
+
+    var srcBases = srcDoc.getElementsByTagName('base');
+    if (srcBases[0]) {
+      var head = destDoc.getElementsByTagName('head')[0];
+      if (!head) {
+        try {
+          head = destDoc.createElement('head');
+          if (destDoc.body) {
+            destDoc.insertBefore(head, destDoc.body);
+          } else {
+            destDoc.appendChild(head);
+          }
+        } catch (e) {
+          head = destDoc.body;
+        }
+      }
+      var bases = destDoc.getElementsByTagName('base');
+      var base = bases[0] ? bases[0] : destDoc.createElement('base');
+      base.setAttribute('href', srcBases[0].getAttribute('href'));
+      head.appendChild(base);
+    }
+
+    destDoc.replaceChild(
+      destDoc.importNode(srcDoc.documentElement, true),
+      destDoc.documentElement
+    );
+
+    // DISABLED: immediate readiness - webkit has some difficulty with this.
+    // if (callback) { callback(); }
+
+    Monocle.defer(callback);
+  }
+
+
+  // Once a frame is loaded with this component, call this method to style
+  // and measure its contents.
+  //
+  function setupFrame(pageDiv, frame) {
+    // BROWSERHACK: iOS touch events on iframes are busted. See comments in
+    // events.js for an explanation of this hack.
+    Monocle.Events.listenOnIframe(frame);
+
+    // Announce that the component has changed.
+    var evtData = {
+      'page': pageDiv,
+      'document': frame.contentDocument,
+      'component': API
+    };
+    pageDiv.m.reader.dispatchEvent('monocle:componentchange', evtData);
+
+    // Correct the body lineHeight to use a number, not a percentage, which
+    // causes the text to jump upwards.
+    var doc = frame.contentDocument;
+    var win = doc.defaultView;
+    var currStyle = win.getComputedStyle(doc.body, null);
+    var lh = parseFloat(currStyle.getPropertyValue('line-height'));
+    var fs = parseFloat(currStyle.getPropertyValue('font-size'));
+    doc.body.style.lineHeight = lh / fs;
+
+    p.pageLength = pageDiv.m.dimensions.measure();
+    frame.style.visibility = "visible";
+
+    // Find the place of any chapters in the component.
+    locateChapters(pageDiv);
+  }
+
+
+  // Checks whether the pageDiv dimensions have changed. If they have,
+  // remeasures dimensions and returns true. Otherwise returns false.
+  //
+  function updateDimensions(pageDiv) {
+    if (pageDiv.m.dimensions.hasChanged()) {
+      p.pageLength = pageDiv.m.dimensions.measure();
+      return true;
+    } else {
+      return false;
+    }
+  }
+
+
+  // Iterates over all the chapters that are within this component
+  // (according to the array we were provided on initialization) and finds
+  // their location (in percentage terms) within the text.
+  //
+  // Stores this percentage with the chapter object in the chapters array.
+  //
+  function locateChapters(pageDiv) {
+    if (p.chapters[0] && typeof p.chapters[0].percent == "number") {
+      return;
+    }
+    var doc = pageDiv.m.activeFrame.contentDocument;
+    for (var i = 0; i < p.chapters.length; ++i) {
+      var chp = p.chapters[i];
+      chp.percent = 0;
+      if (chp.fragment) {
+        var node = doc.getElementById(chp.fragment);
+        chp.percent = pageDiv.m.dimensions.percentageThroughOfNode(node);
       }
     }
-    delete(tmpDiv);
+    return p.chapters;
   }
 
 
-  function nodeIndex(node) {
-    return p.clientNodes.indexOf(node);
-  }
-
-
-  function prepareNode(node, pageN) {
-    for (var i = 0; i < p.chunks.length; ++i) {
-      if (p.chunks[i].firstPageNumber - 1 <= pageN) {
-        appendChunk(node, p.chunks[i]);
-      } else {
-        detachChunk(node, p.chunks[i]);
-      }
-    }
-  }
-
-
+  // For a given page number within the component, return the chapter that
+  // starts on or most-recently-before this page.
+  //
+  // Useful, for example, in displaying the current chapter title as a
+  // running head on the page.
+  //
   function chapterForPage(pageN) {
     var cand = null;
+    var percent = (pageN - 1) / p.pageLength;
     for (var i = 0; i < p.chapters.length; ++i) {
-      if (pageN >= p.chapters[i].page) {
+      if (percent >= p.chapters[i].percent) {
         cand = p.chapters[i];
       } else {
         return cand;
@@ -151,284 +299,59 @@ Monocle.Component = function (book, id, index, chapters, html) {
   }
 
 
-  function pageForChapter(fragment) {
+  // For a given chapter fragment (the bit after the hash
+  // in eg, "index.html#foo"), return the page number on which
+  // the chapter starts. If the fragment is null or blank, will
+  // return the first page of the component.
+  //
+  function pageForChapter(fragment, pageDiv) {
     if (!fragment) {
       return 1;
     }
     for (var i = 0; i < p.chapters.length; ++i) {
       if (p.chapters[i].fragment == fragment) {
-        return p.chapters[i].page;
+        return percentToPageNumber(p.chapters[i].percent);
       }
     }
-    return null;
+    var doc = pageDiv.m.activeFrame.contentDocument;
+    var node = doc.getElementById(fragment);
+    var percent = pageDiv.m.dimensions.percentageThroughOfNode(node);
+    return percentToPageNumber(percent);
   }
 
 
-  function appendChunk(node, chunk) {
-    var slice = p.elementsForClient[nodeIndex(node)].slice(
-      chunk.firstElementIndex,
-      chunk.lastElementIndex
-    );
-
-    if (slice[0].parentNode == node) {
-      return;
-    }
-
-    addElementsTo(node, slice);
+  function pageForXPath(xpath, pageDiv) {
+    var doc = pageDiv.m.activeFrame.contentDocument;
+    var node = doc.evaluate(
+      xpath,
+      doc,
+      null,
+      XPathResult.FIRST_ORDERED_NODE_TYPE,
+      null
+    ).singleNodeValue;
+    var percent = pageDiv.m.dimensions.percentageThroughOfNode(node);
+    return percentToPageNumber(percent);
   }
 
 
-  function detachChunk(node, chunk) {
-    var slice = p.elementsForClient[nodeIndex(node)].slice(
-      chunk.firstElementIndex,
-      chunk.lastElementIndex
-    );
-
-    if (slice[0].parentNode != node) {
-      return;
-    }
-
-    removeElementsFrom(node, slice);
+  function percentToPageNumber(pc) {
+    return Math.floor(pc * p.pageLength) + 1;
   }
 
 
-  function applyTo(node) {
-    registerClient(node);
-    removeElementsFrom(node);
-  }
-
-
-  function updateDimensions(node) {
-    registerClient(node);
-
-    if (haveDimensionsChanged(node)) {
-      removeElementsFrom(node);
-      addElementsTo(node, p.elementsForClient[nodeIndex(node)]);
-      //positionImages(node);
-      measureDimensions(node);
-      locateChapters(node);
-      //tmpLocateOcclusions(node);
-      primeChunks(node);
-
-      // Remove elements from all client nodes, because they'll need to
-      // be re-applied with the new chunks.
-      for (var i = 0; i < p.clientNodes.length; ++i) {
-        removeElementsFrom(p.clientNodes[i]);
-      }
-
-      return true;
-    } else {
-      return false;
-    }
-  }
-
-
-  function registerClient(node) {
-    if (nodeIndex(node) != -1) {
-      // Already registered.
-      return;
-    }
-    p.clientNodes.push(node);
-
-    if (!p.elementsForClient[nodeIndex(node)]) {
-      var sourceElems = p.elementsForClient[0];
-      var destElems = p.elementsForClient[nodeIndex(node)] = [];
-      var len = sourceElems.length;
-      for (var i = 0; i < len; ++i) {
-        destElems[i] = sourceElems[i].cloneNode(true);
-      }
-    }
-  }
-
-
-  // Returns true or false.
-  function haveDimensionsChanged(node) {
-    return (!p.clientDimensions) ||
-      (p.clientDimensions.width != node.parentNode.offsetWidth) ||
-      (p.clientDimensions.height != node.parentNode.offsetHeight) ||
-      (p.clientDimensions.fontSize != node.style.fontSize);
-  }
-
-
-  function positionImages(node) {
-    if (!node.getBoundingClientRect) {
-      console.log('Image positioning not supported');
-      return;
-    } else {
-      console.log('Positioning images to top of pages');
-    }
-    var cRect = node.getBoundingClientRect();
-    var imgs = node.getElementsByTagName('img');
-    for (var i = 0; i < imgs.length; ++i) {
-      var iRect = imgs[i].getBoundingClientRect();
-      if (iRect.top == cRect.top) {
-        imgs[i].style.marginTop = 0;
-      } else {
-        imgs[i].style.marginTop = (cRect.height - (iRect.top - cRect.top))+"px";
-      }
-    }
-  }
-
-
-  function measureDimensions(node) {
-    p.clientDimensions = {
-      width: node.parentNode.offsetWidth,
-      height: node.parentNode.offsetHeight,
-      scrollWidth: node.parentNode.scrollWidth,
-      fontSize: node.style.fontSize
-    }
-
-    if (p.clientDimensions.scrollWidth == p.clientDimensions.width * 2) {
-      var lcEnd = node.lastChild.offsetTop + node.lastChild.offsetHeight;
-      p.clientDimensions.scrollWidth = p.clientDimensions.width *
-        (lcEnd > p.clientDimensions.height ? 2 : 1);
-    }
-
-    p.clientDimensions.pages = Math.ceil(
-      p.clientDimensions.scrollWidth / p.clientDimensions.width
-    );
-
-    return p.clientDimensions;
-  }
-
-
-  function locateChapters(node) {
-    for (var i = 0; i < p.chapters.length; ++i) {
-      var chp = p.chapters[i];
-      chp.page = 1;
-      if (chp.fragment) {
-        var target = document.getElementById(chp.fragment);
-        while (target && target.parentNode != node) {
-          target = target.parentNode;
-        }
-        if (target) {
-          target.scrollIntoView();
-          chp.page = (node.parentNode.scrollLeft / p.clientDimensions.width) + 1;
-        }
-      }
-    }
-    node.parentNode.scrollLeft = 0;
-
-    return p.chapters;
-  }
-
-
-  // Just a test method for finding "occlusions" — which here means elements
-  // that appear at the top of a column. These can be used to do special
-  // occluded chunking — where past chunks can be *removed* from the element
-  // without appearing to reflow the content. This means less is being scrolled,
-  // and slower devices are better able to 3d-render the overPage.
-  //
-  function tmpLocateOcclusions(node) {
-    if (!node.getBoundingClientRect) {
-      console.log('Occlusion not supported');
-      return;
-    } else {
-      console.log('Locating occlusions');
-    }
-
-    var topElems = [];
-    var cRect = node.getBoundingClientRect();
-    for (var i = 0; i < node.childNodes.length; ++i) {
-      var elem = node.childNodes[i];
-      var prevElem = node.childNodes[i - 1];
-      if (!prevElem) {
-        topElems.push(elem);
-      } else {
-        var nRect = elem.getBoundingClientRect();
-        var pRect = prevElem.getBoundingClientRect();
-        if (pRect.bottom <= cRect.bottom && nRect.top <= pRect.top) {
-          topElems.push(elem);
-        }
-      }
-      elem.style.color = "#000"; // FOR DEBUGGING
-    }
-
-    for (i = 0; i < topElems.length; ++i) {
-      topElems[i].style.color = "#F0F"; // FOR DEBUGGING
-    }
-  }
-
-
-  // NB: we could also do chunking on the following:
-  //
-  //  - occlusions
-  //  - start of a section
-  //  - print media - pagebreak CSS?
-  //
-  function primeChunks(node) {
-    p.chunks = [];
-    var elements = p.elementsForClient[nodeIndex(node)];
-    // .. average 1 chunk every 4 pages.
-    var pagesRemaining = p.clientDimensions.pages;
-    var chunkSize = Math.ceil(elements.length / (pagesRemaining / 4));
-    var chunkCount = Math.ceil(elements.length / chunkSize);
-
-    var elemCount = 0;
-    for (var i = 0; i < chunkCount; ++i) {
-      for (var j = 0; j < chunkSize && node.hasChildNodes(); ++j, ++elemCount) {
-        node.removeChild(node.firstChild);
-      }
-      var newPagesRemaining = Math.floor(
-        node.parentNode.scrollWidth / p.clientDimensions.width
-      );
-      p.chunks.push({
-        firstElementIndex: elemCount - j,
-        lastElementIndex: elemCount,
-        firstPageNumber: (p.clientDimensions.pages - pagesRemaining) + 1,
-        lastPageNumber: (p.clientDimensions.pages - newPagesRemaining) + 1
-      });
-      pagesRemaining = newPagesRemaining;
-    }
-
-    return p.chunks;
-  }
-
-
-  function addElementsTo(node, elementArray) {
-    var len = elementArray.length;
-    for (var i = 0; i < len; ++i) {
-      node.appendChild(elementArray[i]);
-    }
-    return len;
-  }
-
-
-  function removeElementsFrom(node, elementArray) {
-    var len;
-    if (elementArray) {
-      len = elementArray.length;
-      for (var i = 0; i < len; ++i) {
-        if (elementArray[i].parentNode == node) {
-          node.removeChild(elementArray[i]);
-        }
-      }
-      return len;
-    }
-
-    len = node.childNodes.length;
-    while (node.hasChildNodes()) {
-      node.removeChild(node.firstChild);
-    }
-    return len;
-  }
-
-
-  // A shortcut to p.clientDimensions.pages.
+  // A public getter for p.pageLength.
   //
   function lastPageNumber() {
-    return p.clientDimensions ? p.clientDimensions.pages : null;
+    return p.pageLength;
   }
 
 
   API.applyTo = applyTo;
   API.updateDimensions = updateDimensions;
-  API.lastPageNumber = lastPageNumber;
-  API.prepareNode = prepareNode;
   API.chapterForPage = chapterForPage;
   API.pageForChapter = pageForChapter;
-
-  initialize();
+  API.pageForXPath = pageForXPath;
+  API.lastPageNumber = lastPageNumber;
 
   return API;
 }

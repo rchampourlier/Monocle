@@ -1,39 +1,33 @@
-Monocle.Controls.PlaceSaver = function (reader) {
+Monocle.Controls.PlaceSaver = function (bookId) {
   if (Monocle.Controls == this) {
-    return new Monocle.Controls.PlaceSaver(reader);
+    return new Monocle.Controls.PlaceSaver(bookId);
   }
 
-  var k = {
-    COOKIE_NAMESPACE: "monocle.controls.placesaver.",
-    COOKIE_EXPIRES_IN_DAYS: 7 // Set to 0 for session-based expiry.
-  }
-
-  // Properties.
-  var p = {
-  }
-
-  // Public methods and properties.
-  var API = {
-    constructor: Monocle.Controls.PlaceSaver,
-    constants: k,
-    properties: p
-  }
+  var API = { constructor: Monocle.Controls.PlaceSaver }
+  var k = API.constants = API.constructor;
+  var p = API.properties = {}
 
 
   function initialize() {
-    p.reader = reader;
-    applyToBook(p.reader.getBook());
-    p.reader.addListener('monocle:turn', savePlaceToCookie);
-    p.reader.addListener('monocle:bookChange', applyToBook);
+    applyToBook(bookId);
   }
 
 
-  function applyToBook() {
-    p.bkTitle = p.reader.getBook().getMetaData('title');
-    p.bkTitle = p.bkTitle.toLowerCase().replace(/[^a-z0-9]/g, '');
-    p.prefix = k.COOKIE_NAMESPACE +
-      p.reader.properties.divs.box.id + "." +
-      p.bkTitle + ".";
+  function assignToReader(reader) {
+    p.reader = reader;
+    p.reader.listen('monocle:turn', savePlaceToCookie);
+    p.reader.listen(
+      'monocle:bookchange',
+      function (evt) {
+        applyToBook(evt.m.book.getMetaData('title'));
+      }
+    );
+  }
+
+
+  function applyToBook(bookId) {
+    p.bkTitle = bookId.toLowerCase().replace(/[^a-z0-9]/g, '');
+    p.prefix = k.COOKIE_NAMESPACE + p.bkTitle + ".";
   }
 
 
@@ -80,14 +74,14 @@ Monocle.Controls.PlaceSaver = function (reader) {
 
 
   function savedPlace() {
-    var place = {
-      component: getCookie('component'),
+    var locus = {
+      componentId: getCookie('component'),
       percent: getCookie('percent')
     }
-    if (place.component && place.percent) {
-      place.component = decodeURIComponent(place.component);
-      place.percent = parseFloat(place.percent);
-      return place;
+    if (locus.componentId && locus.percent) {
+      locus.componentId = decodeURIComponent(locus.componentId);
+      locus.percent = parseFloat(locus.percent);
+      return locus;
     } else {
       return null;
     }
@@ -95,13 +89,14 @@ Monocle.Controls.PlaceSaver = function (reader) {
 
 
   function restorePlace() {
-    var place = savedPlace();
-    if (place) {
-      p.reader.moveTo({ percent: place.percent, componentId: place.component });
+    var locus = savedPlace();
+    if (locus) {
+      p.reader.moveTo(locus);
     }
   }
 
 
+  API.assignToReader = assignToReader;
   API.savedPlace = savedPlace;
   API.restorePlace = restorePlace;
 
@@ -109,6 +104,9 @@ Monocle.Controls.PlaceSaver = function (reader) {
 
   return API;
 }
+
+Monocle.Controls.PlaceSaver.COOKIE_NAMESPACE = "monocle.controls.placesaver.";
+Monocle.Controls.PlaceSaver.COOKIE_EXPIRES_IN_DAYS = 7; // Set to 0 for session-based expiry.
 
 
 Monocle.pieceLoaded('controls/placesaver');

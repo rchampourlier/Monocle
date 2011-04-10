@@ -1,25 +1,32 @@
-<!DOCTYPE html PUBLIC '-//W3C//DTD XHTML 1.1//EN' 'http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd'>
-
-<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en">
-
+<!DOCTYPE html>
+<html>
   <head>
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta http-equiv="Content-Type" content="text/htmlcharset=utf-8"/>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+    />
     <title>BookData test</title>
 
     <!-- MONOCLE CORE -->
     <script type="text/javascript" src="../../src/monocle.js"></script>
     <script type="text/javascript" src="../../src/compat.js"></script>
+    <script type="text/javascript" src="../../src/factory.js"></script>
+    <script type="text/javascript" src="../../src/events.js"></script>
+    <script type="text/javascript" src="../../src/styles.js"></script>
     <script type="text/javascript" src="../../src/reader.js"></script>
     <script type="text/javascript" src="../../src/book.js"></script>
     <script type="text/javascript" src="../../src/component.js"></script>
     <script type="text/javascript" src="../../src/place.js"></script>
-    <script type="text/javascript" src="../../src/styles.js"></script>
     <script type="text/javascript" src="../../src/framer.js"></script>
 
     <!-- MONOCLE FLIPPERS -->
+    <script type="text/javascript" src="../../src/controls/panel.js"></script>
+    <script type="text/javascript" src="../../src/panels/twopane.js"></script>
+    <script type="text/javascript" src="../../src/dimensions/columns.js"></script>
     <script type="text/javascript" src="../../src/flippers/slider.js"></script>
-    <script type="text/javascript" src="../../src/flippers/legacy.js"></script>
+
+    <link rel="stylesheet" type="text/css" href="../../src/monocle.css" />
 
     <style type="text/css">
       .readerInfo {
@@ -37,27 +44,6 @@
         border: 1px solid #000;
         background-color: #CCC;
         overflow: hidden;
-      }
-      .reader p {
-        line-height: 130%;
-      }
-
-      .reader h3 {
-        text-align: center;
-      }
-      .reader p {
-        text-indent: 1em;
-        padding: 0;
-        margin: 0;
-      }
-      .reader h3 + p {
-        text-indent: 0;
-      }
-      .reader h3 + p:first-letter {
-        font-size: 300%;
-        font-weight: bold;
-        float: left;
-        padding: 6px 4px 0 0;
       }
       #part1, #part2 {
         display: none;
@@ -95,7 +81,10 @@
       }
 
       function inlineReader(num, cmpt) {
-        var bd = new bookData({components: [cmpt]});
+        if (typeof cmpt == 'string') {
+          cmpt = [cmpt];
+        }
+        var bd = new bookData({components: cmpt});
         return window['reader'+num] = Monocle.Reader('reader'+num, bd);
       }
 
@@ -105,29 +94,33 @@
         framer.constants.scripts = [
           "../../src/monocle.js",
           "../../src/compat.js",
+          "../../src/events.js",
+          "../../src/factory.js",
           "../../src/reader.js",
           "../../src/book.js",
           "../../src/component.js",
           "../../src/place.js",
           "../../src/styles.js",
-          "../../src/flippers/slider.js",
-          "../../src/flippers/legacy.js"
+          "../../src/controls/panel.js",
+          "../../src/panels/twopane.js",
+          "../../src/dimensions/columns.js",
+          "../../src/flippers/slider.js"
         ]
-        framer.constants.waitForPiece = 'flippers/legacy';
+        framer.constants.waitForPiece = 'flippers/slider';
         return window['reader'+num] = framer.newReader('reader'+num, bd);
       }
 
       // Initialize the reader element.
-      Monocle.addListener(
+      Monocle.Events.listen(
         window,
         'load',
         function () {
           inlineReader(1, '01-basic-body-only');
           inlineReader(2, '02-basic-full-document');
           inlineReader(3, '03-empty');
-          inlineReader(4, '04-short-document');
+          inlineReader(4, ['04-short-1page','04-short-2page','04-short-3page']);
           inlineReader(5, '05-short-document-with-image');
-          framedReader(6, '06-document-with-stylesheet');
+          inlineReader(6, '06-document-with-stylesheet');
           framedReader(7, '07-contains-javascript');
         }
       );
@@ -165,7 +158,7 @@
       <h2>04</h2>
       <div class="reader" id="reader4"></div>
       <p>
-        Two page document.
+        1 page component, 2 page component, 3 page component.
       </p>
     </div>
 

@@ -2,38 +2,40 @@ Monocle = {
   VERSION: "1.0.0"
 };
 
+
 Monocle.pieceLoaded = function (piece) {
   if (typeof onMonoclePiece == 'function') {
     onMonoclePiece(piece);
   }
 }
 
-Monocle.Styles = {
-  ruleText: function(rule) {
-    if (typeof rule == "string") {
-      rule = this[rule];
-    }
-    if (!rule) { return ""; }
 
-    var parts = [];
-    for (var declaration in rule) {
-      parts.push(declaration + ": " + rule[declaration] + ";")
-    }
-    return parts.join(" ");
+Monocle.defer = function (fn, time) {
+  if (fn && typeof fn == "function") {
+    return setTimeout(fn, time || 0);
   }
 }
 
-//= require <compat>
-//= require <reader>
-//= require <book>
-//= require <place>
-//= require <component>
-//= require <styles>
 
-Monocle.Flippers = {};
+//= require "compat"
+//= require "factory"
+//= require "events"
+//= require "styles"
+//= require "reader"
+//= require "book"
+//= require "place"
+//= require "component"
+
+Monocle.Dimensions = {}
 Monocle.Controls = {};
+Monocle.Flippers = {};
+Monocle.Panels = {};
 
-//= require <flippers/legacy>
-//= require <flippers/slider>
+//= require "controls/panel"
+//= require "panels/twopane"
+//= require "dimensions/vert"
+//= require "flippers/legacy"
+//= require "dimensions/columns"
+//= require "flippers/slider"
 
 Monocle.pieceLoaded('monocle');

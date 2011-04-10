@@ -6,29 +6,18 @@
  * and for calculating which component and page number to move to (based on
  * requests from the Reader).
  *
- * It should set and know the place of each page node too.
+ * It should set and know the place of each page element too.
  *
  */
 Monocle.Book = function (dataSource) {
   if (Monocle == this) { return new Monocle.Book(dataSource); }
 
-  // Constants
-  var k = {
-  }
-
-  // Properties.
-  var p = {
+  var API = { constructor: Monocle.Book }
+  var k = API.constants = API.constructor;
+  var p = API.properties = {
     dataSource: dataSource,
     components: [],
-    places: [],
     chapters: {} // flat arrays of chapters per component
-  }
-
-  // Methods and properties available to external code.
-  var API = {
-    constructor: Monocle.Book,
-    constants: k,
-    properties: p
   }
 
 
@@ -39,164 +28,327 @@ Monocle.Book = function (dataSource) {
   }
 
 
-  // This method must return the actual page number WITHIN THE COMPONENT that
-  // will result from the page being turned to 'pageN'. That is, it constrains
-  // and corrects the value of pageN.
+  // Adjusts the given locus object to provide the page number within the
+  // current component.
   //
-  // In this process, it should load a new component if required. It should
-  // recurse if pageN overflows the first or last pages of the given component.
+  // If the locus implies movement to another component, the locus
+  // 'componentId' property will be updated to point to this component, and
+  // the 'load' property will be set to true, which should be taken as a
+  // sign to call loadPageAt with a callback.
   //
-  // The locus argument is required, and is an object that responds to one of:
+  // The locus argument is an object that has one of the following properties:
   //
-  //  - page: integer
+  //  - page: positive integer. Counting up from the start of component.
+  //  - pagesBack: negative integer. Counting back from the end of component.
   //  - percent: float
-  //  - direction: integer relative to the current page number for this node
+  //  - direction: integer relative to the current page number for this pageDiv
   //  - position: string, one of "start" or "end", moves to corresponding point
   //      in the given component
+  //  - anchor: an element id within the component
+  //  - xpath: an xpath within the component
   //
   // The locus object can also specify a componentId. If it is not provided
   // (or it is invalid), we default to the currently active component, and
   // if that doesn't exist, we default to the very first component.
   //
-  function changePage(node, locus) {
-    // Find the place of the node in the book, or create one.
-    var place = placeFor(node) || setPlaceFor(node, componentAt(0), 1);
-
+  // The locus result will be an object with the following properties:
+  //
+  //  - load: boolean, true if loading component required, false otherwise
+  //  - componentId: component to load (current componentId if load is false)
+  //  - if load is false:
+  //    - page
+  //  - if load is true:
+  //    - one of page / pagesBack / percent / direction / position / anchor
+  //
+  function pageNumberAt(pageDiv, locus) {
+    locus.load = false;
+    var currComponent = pageDiv.m.activeFrame ?
+      pageDiv.m.activeFrame.m.component :
+      null;
+    var component = null;
     var cIndex = p.componentIds.indexOf(locus.componentId);
-    var component;
-    if (cIndex == -1) {
-      component = place.properties.component;
+    if (cIndex < 0 && !currComponent) {
+      // No specified component, no current component. Load first component.
+      locus.load = true;
+      locus.componentId = p.componentIds[0];
+      return locus;
+    } else if (
+      cIndex < 0 &&
+      locus.componentId &&
+      currComponent.properties.id != locus.componentId
+    ) {
+      // Invalid component, say not found.
+      pageDiv.m.reader.dispatchEvent(
+        "monocle:notfound",
+        { href: locus.componentId }
+      );
+      return null;
+    } else if (cIndex < 0) {
+      // No specified (or invalid) component, use current component.
+      component = currComponent;
+      locus.componentId = pageDiv.m.activeFrame.m.component.properties.id;
+      cIndex = p.componentIds.indexOf(locus.componentId);
+    } else if (!p.components[cIndex] || p.components[cIndex] != currComponent) {
+      // Specified component differs from current component. Load specified.
+      locus.load = true;
+      return locus;
     } else {
-      component = componentAt(cIndex);
+      component = currComponent;
     }
 
-    if (component != place.properties.component) {
-      component.applyTo(node);
-    }
+    // If we're here, then the locus is based on the current component.
+    var result = { load: false, componentId: locus.componentId, page: 1 }
 
-    var oldCmptLPN = component.lastPageNumber();
-    var changedDims = component.updateDimensions(node);
+    // Get the current last page, update the component, get new last page.
+    var lastPageNum = { 'old': component.lastPageNumber() }
+    var changedDims = component.updateDimensions(pageDiv);
+    lastPageNum['new'] = component.lastPageNumber();
 
-    // Now that the component has been activated within the node, we can
-    // deduce the page number for the given locus.
-    var pageN = 1;
+    // Deduce the page number for the given locus.
     if (typeof(locus.page) == "number") {
-      pageN = locus.page;
+      result.page = locus.page;
+    } else if (typeof(locus.pagesBack) == "number") {
+      result.page = lastPageNum['new'] + locus.pagesBack;
     } else if (typeof(locus.percent) == "number") {
-      place = setPlaceFor(node, component, 1);
-      pageN = place.pageAtPercentageThrough(locus.percent);
+      var place = new Monocle.Place();
+      place.setPlace(component, 1);
+      result.page = place.pageAtPercentageThrough(locus.percent);
     } else if (typeof(locus.direction) == "number") {
-      pageN = place.pageNumber();
-      pageN += locus.direction;
+      if (!pageDiv.m.place) {
+        console.warn("Can't move in a direction if pageDiv has no place.");
+      }
+      result.page = pageDiv.m.place.pageNumber();
+      result.page += locus.direction;
     } else if (typeof(locus.anchor) == "string") {
+      result.page = component.pageForChapter(locus.anchor, pageDiv);
+    } else if (typeof(locus.xpath) == "string") {
+      result.page = component.pageForXPath(locus.xpath, pageDiv);
+    } else if (typeof(locus.position) == "string") {
       if (locus.position == "start") {
-        pageN = 1;
+        result.page = 1;
       } else if (locus.position == "end") {
-        pageN = component.lastPageNumber();
+        result.page = lastPageNum['new'];
       }
     } else {
-      console.log("Unrecognised locus: " + locus);
+      console.warn("Unrecognised locus: " + locus);
     }
 
-    // If the dimensions of the node have changed, we should multiply the
-    // pageN against the difference between the old number of pages in the
+    // If the dimensions of the pageDiv have changed, we should multiply the
+    // page num against the difference between the old number of pages in the
     // component and the new number of pages in the component.
-    if (changedDims && parseInt(oldCmptLPN)) {
-      pageN = Math.max(
-        Math.round(component.lastPageNumber() * (pageN / oldCmptLPN)),
-        1
+    if (changedDims && lastPageNum['old']) {
+      result.page = Math.round(
+        lastPageNum['new'] * (result.page / lastPageNum['old'])
       );
     }
 
-    // Determine whether we need to apply a new component to the div, and
-    // adjust the pageN accordingly.
-    cIndex = component.properties.index;
-    var lpn = component.lastPageNumber();
-    if (cIndex == 0 && pageN < 1) {
-      // Before first page of book. Disallow.
-      return false;
-    } else if (cIndex == p.lastCIndex && pageN > component.lastPageNumber()) {
-      // After last page of book. Disallow.
-      return false;
-    } else if (pageN > component.lastPageNumber()) {
-      // Moving to next component.
-      pageN -= component.lastPageNumber();
-      component = componentAt(cIndex + 1);
-      return changePage(
-        node,
-        { page: pageN, componentId: component.properties.id }
-      );
-    } else if (pageN < 1) {
-      // Moving to previous component.
-      component = componentAt(cIndex - 1);
-      // NB: as soon as we update the dimensions, we've changed the page state.
-      component.updateDimensions(node);
-      pageN += component.lastPageNumber();
-      return changePage(
-        node,
-        { page: pageN, componentId: component.properties.id }
-      );
-    }
-
-    // Do it.
-    component.prepareNode(node, pageN)
-    setPlaceFor(node, component, pageN);
-
-    return {
-      componentId: component.properties.id,
-      page: pageN,
-      offset: (pageN - 1) * node.parentNode.offsetWidth
-    }
-  }
-
-
-  function placeFor(node) {
-    for (var i = p.places.length - 1; i >= 0; --i) {
-      if (p.places[i][0] == node) {
-        return p.places[i][1];
+    if (result.page < 1) {
+      if (cIndex == 0) {
+        // On first page of book.
+        result.page = 1;
+        result.boundarystart = true;
+      } else {
+        // Moving backwards from current component.
+        result.load = true;
+        result.componentId = p.componentIds[cIndex - 1];
+        result.pagesBack = result.page;
+        result.page = null;
+      }
+    } else if (result.page > lastPageNum['new']) {
+      if (cIndex == p.lastCIndex) {
+        // On last page of book.
+        result.page = lastPageNum['new'];
+        result.boundaryend = true;
+      } else {
+        // Moving forwards from current component.
+        result.load = true;
+        result.componentId = p.componentIds[cIndex + 1];
+        result.page -= lastPageNum['new'];
       }
     }
-    return null;
+
+    return result;
   }
 
 
-  function setPlaceFor(node, component, pageN) {
-    var place = placeFor(node);
-    if (!place) {
-      place = new Monocle.Place();
-      p.places[p.places.length] = [node, place];
+  // Same as pageNumberAt, but if a load is not flagged, this will
+  // automatically update the pageDiv's place to the given pageNumber.
+  //
+  // If you call this (ie, from a flipper), you are effectively entering into
+  // a contract to move the frame offset to the given page returned in the
+  // locus if load is false.
+  //
+  function setPageAt(pageDiv, locus) {
+    locus = pageNumberAt(pageDiv, locus);
+    if (locus && !locus.load) {
+      var evtData = { locus: locus, page: pageDiv }
+      if (locus.boundarystart) {
+        pageDiv.m.reader.dispatchEvent('monocle:boundarystart', evtData);
+      } else if (locus.boundaryend) {
+        pageDiv.m.reader.dispatchEvent('monocle:boundaryend', evtData);
+      } else {
+        var component = p.components[p.componentIds.indexOf(locus.componentId)];
+        pageDiv.m.place = pageDiv.m.place || new Monocle.Place();
+        pageDiv.m.place.setPlace(component, locus.page);
+
+        var evtData = {
+          page: pageDiv,
+          locus: locus,
+          pageNumber: pageDiv.m.place.pageNumber(),
+          componentId: locus.componentId
+        }
+        pageDiv.m.reader.dispatchEvent("monocle:pagechange", evtData);
+      }
     }
-    place.setPlace(component, pageN);
-    return place;
+    return locus;
   }
 
 
-  function componentAt(index) {
-    if (!p.components[index]) {
-      var src = p.componentIds[index];
-      var html = p.dataSource.getComponent(src);
+  // Will load the given component into the pageDiv's frame, then invoke the
+  // callback with resulting locus (provided by pageNumberAt).
+  //
+  // If the resulting page number is outside the bounds of the new component,
+  // (ie, pageNumberAt again requests a load), this will recurse into further
+  // components until non-loading locus is returned by pageNumberAt. Then the
+  // callback will fire with that locus.
+  //
+  // As with setPageAt, if you call this you're obliged to move the frame
+  // offset to the given page in the locus passed to the callback.
+  //
+  // If you pass a function as the progressCallback argument, the logic of this
+  // function will be in your control. The function will be invoked between:
+  //
+  // a) loading the component and
+  // b) applying the component to the frame and
+  // c) loading any further components if required
+  //
+  // with a function argument that performs the next step in the process. So
+  // if you need to do some special handling during the load process, you can.
+  //
+  function loadPageAt(pageDiv, locus, callback, progressCallback) {
+    var cIndex = p.componentIds.indexOf(locus.componentId);
+    if (!locus.load || cIndex < 0) {
+      locus = pageNumberAt(pageDiv, locus);
+    }
+
+    if (!locus) {
+      return;
+    }
+
+    if (!locus.load) {
+      callback(locus);
+      return;
+    }
+
+    var findPageNumber = function () {
+      locus = setPageAt(pageDiv, locus);
+      if (!locus) {
+        return;
+      } else if (locus.load) {
+        loadPageAt(pageDiv, locus, callback, progressCallback)
+      } else {
+        callback(locus);
+      }
+    }
+
+    var pgFindPageNumber = function () {
+      progressCallback ? progressCallback(findPageNumber) : findPageNumber();
+    }
+
+    var applyComponent = function (component) {
+      component.applyTo(pageDiv, pgFindPageNumber);
+    }
+
+    var pgApplyComponent = function (component) {
+      progressCallback ?
+        progressCallback(function () { applyComponent(component) }) :
+        applyComponent(component);
+    }
+
+    loadComponent(cIndex, pgApplyComponent, pageDiv);
+  }
+
+
+  // If your flipper doesn't care whether a component needs to be
+  // loaded before the page can be set, you can use this shortcut.
+  //
+  function setOrLoadPageAt(pageDiv, locus, callback, onProgress, onFail) {
+    locus = setPageAt(pageDiv, locus);
+    if (!locus) {
+      if (onFail) { onFail(); }
+    } else if (locus.load) {
+      loadPageAt(pageDiv, locus, callback, onProgress);
+    } else {
+      callback(locus);
+    }
+  }
+
+
+  // Fetches the component source from the dataSource.
+  //
+  // 'index' is the index of the component in the
+  // dataSource.getComponents array.
+  //
+  // 'callback' is invoked when the source is received.
+  //
+  // 'pageDiv' is optional, and simply allows firing events on
+  // the reader object that has requested this component, ONLY if
+  // the source has not already been received.
+  //
+  function loadComponent(index, callback, pageDiv) {
+    if (p.components[index]) {
+      return callback(p.components[index]);
+    }
+    var cmptId = p.componentIds[index];
+    if (pageDiv) {
+      var evtData = { 'page': pageDiv, 'component': cmptId, 'index': index };
+      pageDiv.m.reader.dispatchEvent('monocle:componentloading', evtData);
+    }
+    var fn = function (cmptSource) {
+      if (pageDiv) {
+        evtData['source'] = cmptSource;
+        pageDiv.m.reader.dispatchEvent('monocle:componentloaded', evtData);
+        html = evtData['html'];
+      }
       p.components[index] = new Monocle.Component(
         API,
-        src,
+        cmptId,
         index,
-        chaptersForComponent(src),
-        html
+        chaptersForComponent(cmptId),
+        cmptSource
       );
+      callback(p.components[index]);
     }
-    return p.components[index];
+    var cmptSource = p.dataSource.getComponent(cmptId, fn);
+    if (cmptSource && !p.components[index]) {
+      fn(cmptSource);
+    }
   }
 
 
-  function chaptersForComponent(src) {
-    if (p.chapters[src]) {
-      return p.chapters[src];
+  // Returns an array of chapter objects that are found in the given component.
+  //
+  // A chapter object has this format:
+  //
+  //    {
+  //      title: "Chapter 1",
+  //      fragment: null
+  //    }
+  //
+  // The fragment property of a chapter object is either null (the chapter
+  // starts at the head of the component) or the fragment part of the URL
+  // (eg, "foo" in "index.html#foo").
+  //
+  function chaptersForComponent(cmptId) {
+    if (p.chapters[cmptId]) {
+      return p.chapters[cmptId];
     }
-    p.chapters[src] = [];
-    var matcher = new RegExp('^'+src+"(\#(.+)|$)");
+    p.chapters[cmptId] = [];
+    var matcher = new RegExp('^'+cmptId+"(\#(.+)|$)");
     var matches;
     var recurser = function (chp) {
       if (matches = chp.src.match(matcher)) {
-        p.chapters[src].push({
+        p.chapters[cmptId].push({
           title: chp.title,
           fragment: matches[2] || null
         });
@@ -211,43 +363,39 @@ Monocle.Book = function (dataSource) {
     for (var i = 0; i < p.contents.length; ++i) {
       recurser(p.contents[i]);
     }
-    return p.chapters[src];
+    return p.chapters[cmptId];
   }
 
 
-  function placeOfChapter(node, src) {
+  // Returns a locus for the chapter that has the URL given in the
+  // 'src' argument.
+  //
+  // See the comments at pageNumberAt for an explanation of locus objects.
+  //
+  function locusOfChapter(src) {
     var matcher = new RegExp('^(.+?)(#(.*))?$');
     var matches = src.match(matcher);
-    if (matches) {
-      var cmptId = matches[1];
-      var fragment = matches[3] || null;
-      var cIndex = p.componentIds.indexOf(cmptId);
-      var component = componentAt(cIndex);
-      // NB: updating dimensions changes page state.
-      component.updateDimensions(node);
-      var place = new Monocle.Place(node);
-      if (fragment) {
-        place.setPlace(component, component.pageForChapter(fragment));
-      } else {
-        place.setPlace(component, 1);
-      }
-      return place;
-    }
-    return null;
+    if (!matches) { return null; }
+    var cmptId = componentIdMatching(matches[1]);
+    if (!cmptId) { return null; }
+    var locus = { componentId: cmptId }
+    matches[3] ? locus.anchor = matches[3] : locus.position = "start";
+    return locus;
   }
 
 
-  function chapterTree() {
-    return p.contents;
+  function componentIdMatching(str) {
+    return p.componentIds.indexOf(str) >= 0 ? str : null;
   }
 
 
   API.getMetaData = dataSource.getMetaData;
-  API.changePage = changePage;
-  API.chapterTree = chapterTree;
+  API.pageNumberAt = pageNumberAt;
+  API.setPageAt = setPageAt;
+  API.loadPageAt = loadPageAt;
+  API.setOrLoadPageAt = setOrLoadPageAt;
   API.chaptersForComponent = chaptersForComponent;
-  API.placeFor = placeFor;
-  API.placeOfChapter = placeOfChapter;
+  API.locusOfChapter = locusOfChapter;
 
   initialize();
 
@@ -255,7 +403,13 @@ Monocle.Book = function (dataSource) {
 }
 
 
-Monocle.Book.fromHTML = function (html) {
+// A shortcut for creating a book from an array of nodes.
+//
+// You could use this as follows, for eg:
+//
+//  Monocle.Book.fromNodes([document.getElementById('content')]);
+//
+Monocle.Book.fromNodes = function (nodes) {
   var bookData = {
     getComponents: function () {
       return ['anonymous'];
@@ -264,7 +418,7 @@ Monocle.Book.fromHTML = function (html) {
       return [];
     },
     getComponent: function (n) {
-      return html;
+      return { 'nodes': nodes };
     },
     getMetaData: function (key) {
     }

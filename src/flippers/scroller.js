@@ -1,24 +1,10 @@
 Monocle.Flippers.Scroller = function (reader, setPageFn) {
-  if (Monocle.Flippers == this) {
-    return new Monocle.Flippers.Scroller(reader, setPageFn);
-  }
 
-  // Constants
-  var k = {
-    speed: 200, // How long the animation takes
-    rate: 20 // frame-rate of the animation
-  }
-
-
-  // Properties
-  var p = {
-    pageCount: 1
-  }
-
-  var API = {
-    constructor: Monocle.Flippers.Scroller,
-    properties: p,
-    constants: k
+  var API = { constructor: Monocle.Flippers.Scroller }
+  var k = API.constants = API.constructor;
+  var p = API.properties = {
+    pageCount: 1,
+    duration: 200
   }
 
 
@@ -29,91 +15,95 @@ Monocle.Flippers.Scroller = function (reader, setPageFn) {
 
 
   function addPage(pageDiv) {
-    p.page = pageDiv;
+    pageDiv.m.dimensions = new Monocle.Dimensions.Columns(pageDiv);
   }
 
 
-  function visiblePages() {
-    return [p.page];
+  function page() {
+    return p.reader.dom.find('page');
   }
 
 
-  function listenForInteraction() {
-    p.reader.addListener(
-      "monocle:contact:start",
-      function (evt) {
-        if (turn(evt.monocleData.contactX)) {
-          evt.preventDefault();
-        }
+  function listenForInteraction(panelClass) {
+    if (typeof panelClass != "function") {
+      panelClass = k.DEFAULT_PANELS_CLASS;
+    }
+    p.panels = new panelClass(
+      API,
+      {
+        'end': function (panel) { turn(panel.properties.direction); }
       }
     );
   }
 
 
+  function turn(dir) {
+    if (p.turning) { return; }
+    moveTo({ page: getPlace().pageNumber() + dir});
+  }
+
+
   function getPlace() {
-    return p.reader.getBook().placeFor(p.page.contentDiv);
+    return page().m.place;
   }
 
 
-  function moveTo(locus) {
-    var spCallback = function (offset) {
-      var jump = (offset - p.page.scrollerDiv.scrollLeft) / (k.speed / k.rate);
-      var div = p.page.scrollerDiv;
-      clearTimeout(p.timer);
-      p.timer = setInterval(
+  function moveTo(locus, callback) {
+    var fn = frameToLocus;
+    if (typeof callback == "function") {
+      fn = function (locus) { frameToLocus(locus); callback(locus); }
+    }
+    p.reader.getBook().setOrLoadPageAt(page(), locus, fn);
+  }
+
+
+  function frameToLocus(locus) {
+    p.turning = true;
+
+    var x = page().m.dimensions.locusToOffset(locus);
+    var bdy = page().m.activeFrame.contentDocument.body;
+    if (typeof WebKitTransitionEvent != "undefined") {
+      bdy.style.webkitTransition = "-webkit-transform " +
+        p.duration + "ms ease-out 0ms";
+      bdy.style.webkitTransform = "translateX("+x+"px)";
+      Monocle.Events.listen(
+        bdy,
+        'webkitTransitionEnd',
         function () {
-          div.scrollLeft += jump;
-          if (
-            (jump == 0) ||
-            (jump < 0 && div.scrollLeft < offset) ||
-            (jump > 0 && div.scrollLeft > offset)
-          ) {
-            div.scrollLeft = offset;
-            clearTimeout(p.timer);
-            p.reader.dispatchEvent('monocle:turn');
-          }
-          // FIXME: a hack for webkit rendering artefacts.
-          // DISABLED for speed, but means this flipper is broken on iPhone.
-          //var x = Math.random() / 1000 + 1.0;
-          //p.page.scrollerDiv.style.webkitTransform = "scale(" + x + ")";
-        },
-        k.rate
+          p.turning = false;
+          p.reader.dispatchEvent('monocle:turn');
+        }
       );
+    } else {
+      var finalX = x;
+      var stamp = (new Date()).getTime();
+      var frameRate = 40;
+      var currX = p.currX || 0;
+      var step = (finalX - currX) * (frameRate / p.duration);
+      var stepFn = function () {
+        var destX = currX + step;
+        if (
+          (new Date()).getTime() - stamp > p.duration ||
+          Math.abs(currX - finalX) <= Math.abs((currX + step) - finalX)
+        ) {
+          clearTimeout(bdy.animInterval)
+          Monocle.Styles.setX(bdy, finalX);
+          p.turning = false;
+          p.reader.dispatchEvent('monocle:turn');
+        } else {
+          Monocle.Styles.setX(bdy, destX);
+          currX = destX;
+        }
+        p.currX = destX;
+      }
+      bdy.animInterval = setInterval(stepFn, frameRate);
     }
-    var rslt = p.setPageFn(p.page, locus, spCallback);
-    return rslt;
-  }
-
-
-  function turn(boxPointX) {
-    if (inForwardZone(boxPointX)) {
-      moveTo({ page: getPlace().pageNumber() + 1});
-    } else if (inBackwardZone(boxPointX)) {
-      moveTo({ page: getPlace().pageNumber() - 1});
-    }
-  }
-
-
-  // Returns to if the box-based x point is in the "Go forward" zone for
-  // user turning a page.
-  //
-  function inForwardZone(x) {
-    return x > p.reader.properties.pageWidth * 0.6;
-  }
-
-
-  // Returns to if the box-based x point is in the "Go backward" zone for
-  // user turning a page.
-  //
-  function inBackwardZone(x) {
-    return x < p.reader.properties.pageWidth * 0.4;
   }
 
 
   // THIS IS THE CORE API THAT ALL FLIPPERS MUST PROVIDE.
   API.pageCount = p.pageCount;
   API.addPage = addPage;
-  API.visiblePages = visiblePages;
   API.getPlace = getPlace;
   API.moveTo = moveTo;
   API.listenForInteraction = listenForInteraction;
@@ -122,6 +112,12 @@ Monocle.Flippers.Scroller = function (reader, setPageFn) {
 
   return API;
 }
+
+Monocle.Flippers.Scroller.speed = 200; // How long the animation takes
+Monocle.Flippers.Scroller.rate = 20; // frame-rate of the animation
+Monocle.Flippers.Scroller.FORWARDS = 1;
+Monocle.Flippers.Scroller.BACKWARDS = -1;
+Monocle.Flippers.Scroller.DEFAULT_PANELS_CLASS = Monocle.Panels.TwoPane;
 
 
 Monocle.pieceLoaded('flippers/scroller');

@@ -32,7 +32,7 @@ Here's the simplest thing that could possibly work.
 
     <!-- Create the reader when the page has loaded -->
     <script type="text/javascript">
-      Monocle.addListener(window, 'load', function () {Monocle.Reader('rdr')});
+      Monocle.Events.listen(window, 'load', function () {Monocle.Reader('rdr')});
     </script>
 
     <!-- Somewhere in the page body, an element with a matching id... -->
@@ -45,7 +45,6 @@ itself. In theory there's no limit on the size of the contents of that div.
 
 A more advanced scenario involves feeding Monocle a "book data object", from
 which it can lazily load the contents of the book as the user requests it.
-
 
 ### Specification of the book data object
 
@@ -83,9 +82,11 @@ Methods:
              ]
            }
         ]
-* `getComponent(componentId)`: takes a component id (from the list returned
-    by `getComponents`) and returns the body text of the corresponding
-    component.
+* `getComponent(componentId, callback)`: takes a component id (from the list
+    returned by `getComponents`) and returns the body text of the corresponding
+    component. If nothing is returned, Monocle will wait for the callback to
+    be invoked (ie, by an asynchronous operation). Either call the callback
+    with data, or return data, but not both.
 * `getMetaData(key)`: takes a string "key" and returns the value of that
     metadata for this book. There is not yet any standardized list of
     possible keys -- we'll just see what happens for a bit. Note that if
@@ -95,7 +96,8 @@ Methods:
 Note that if these methods retrieve any data from a server using AJAX
 techniques, it should be a synchronous operation, because the clients of the
 book data object expect the result to be returned from the method itself
-(not via a callback).
+(not via a callback). The exception is getComponent, which can use the
+callback for asynchronous data retrieval.
 
 
 ### Example of a book data object
@@ -144,16 +146,9 @@ book data object expect the result to be returned from the method itself
     }
 
     // Initialize the reader element.
-    var reader = Monocle.Reader('reader');
-
-    // Initialize a book object. (Of course we could have just passed it in
-    // as the second argument to the reader constructor, which would also
-    // obviate the need for the setBook call below. This is the scenic route.)
-    var book = Monocle.Book(bookData);
-
-    // Assign the book to the reader and go to the 3rd page.
-    reader.setBook(book);
-    reader.moveTo({ page: 3 });
+    Monocle.Reader('reader', bookData, {}, function (reader) {
+      reader.moveTo({ page: 3 });
+    });
 
 
 ## Building Monocle for production
@@ -175,7 +170,7 @@ small, and you can simply select which ones you want to include on the page.
 They're in `src/controls`.
 
 
-### Advanced Monocle
+## Advanced Monocle
 
 Monocle is built to be extended. It's pretty flexible. You can create custom
 controls and custom page-turning interactions (called 'flippers' in Monocle).
@@ -217,16 +212,13 @@ preventDefault() on them if you need to.
 * monocle:loaded
 * monocle:resizing (c)
 * monocle:resize
-* monocle:bookchanging (c)
-* monocle:bookchange
-* monocle:pagechanging (c)
+* monocle:componentloading
+* monocle:componentloaded
+* monocle:componentchanging
+* monocle:componentchange
 * monocle:pagechange
-* monocle:contact:start (c)
-* monocle:contact:move (c)
-* monocle:contact:end (c)
-* monocle:contact:start:unhandled (c)
-* monocle:contact:move:unhandled (c)
-* monocle:contact:end:unhandled (c)
+* monocle:stylesheetchanging
+* monocle:stylesheetchange
 * monocle:turn
 
 
@@ -269,7 +261,7 @@ although again, this is optional for invisible controls. You should not
 insert the DOM element into the parentNode - the Reader will do this for you.
 
 
-### Alternative page flipping mechanisms
+## Alternative page flipping mechanisms
 
 Flippers are objects that follow a defined interface, and do the hard labour
 of actually turning the page. They typically listen for user interaction of
@@ -294,10 +286,6 @@ The flipper interface is as follows.
 Constructor arguments:
 
 * `reader`
-* `setPageFunction` - the 'private' method of the reader that should be invoked
-    whenever a page is being changed. The actual flipper-specific logic to
-    change the page is generally provided in a callback to this invocation.
-    See the existing flippers for examples.
 
 Properties:
 
@@ -306,13 +294,37 @@ Properties:
 Methods:
 
 * `addPage(pageDiv)`
-* `visiblePages()`
 * `getPlace(pageDiv)`
 * `moveTo(locus)`
 * `listenForInteraction()`
 
 
-### Javascript Object Style
+## Panels — turning pages and interacting with page content
+
+Panels are the controls that provide the interface to flippers. There's three
+built-in:
+
+* TwoPane: clicking or swiping on the left half moves backwards, clicking or
+    swiping on the right half moves forwards.
+* Marginal: clicking/swiping left margin moves backwards, right margin moves
+    forwards. This leaves the text open for interaction, such as selection or
+    clicking links.
+* IMode: the screen is initially divided into thirds. Left third -> backwards,
+  right third -> forwards. The middle third, when tapped, causes the left and
+  right panels to recede to the margins, opening the text to interaction.
+  Clicking the little (i) interactive mode indicator restores the panels to
+  their original positions. This is a good choice for small screens.
+
+For most flippers, you can set the preferred panel class with the 'panels'
+option to the reader. For eg:
+
+  Monocle.reader('reader', bookData, { panels: Monocle.Panels.IMode });
+
+Of course, you can create your own panel classes too. Take a look at the
+TwoPane class for the simplest example code.
+
+
+## Javascript Object Style
 
 In this incarnation at least, Monocle uses a Javascript idiom for defining
 many of the core classes. This is designed to declutter the classes, clarify
@@ -327,27 +339,21 @@ The class idiom looks like this:
     Monocle.Foo = function (args) {
       // Allows the constructor function to be an object factory itself,
       // ie: "Monocle.Foo()" is the same as "new Monocle.Foo()".
+      // (Only necessary for classes that a library user may instantiate.)
       if (Monocle == this) { return new Monocle.Foo(args); }
 
-      // Conventional name for any class constants.
-      var k = {
-        A_CONSTANT: 'Foo',
-        PI: 3.14
-      };
+      // Conventional name for the object that is returned by the constructor,
+      // allowing access to the public methods and properties by external code.
+      var API = { constructor: Monocle.Foo }
+
+      // Conventional name for any class constants. Typically this is the
+      // class constructor function itself.
+      var k = API.constants = API.constructor;
 
       // Conventional name for any publicly accessible properties (instance
       // variables).
-      var p = {
+      var p = API.properties = {
         someVariable: 'bar'
-      };
-
-      // Conventional name for the object that is returned by the constructor,
-      // allowing access to the public methods and properties by external
-      // code.
-      var API = {
-        constructor: Monocle.Foo,
-        properties: p,
-        constants: k
       };
 
 
@@ -360,6 +366,7 @@ The class idiom looks like this:
       function exampleInternalMethod() {
       }
 
+
       // Typically, public methods are attached to the API just before
       // returning, for easier scannability of the API.
       API.examplePublicMethod = examplePublicMethod;
@@ -367,5 +374,53 @@ The class idiom looks like this:
       return API;
     }
 
-This allows a quite concise, clear coding style. However, it does make class
-inheritance somewhat limited. Let's see how it goes.
+    // Defining some "constants" on the class. (Of course, not really constant.)
+    Monocle.Foo.A_CONSTANT = 'Foo';
+    Monocle.Foo.PI = 3.14;
+
+This allows a quite concise, clear coding style. There's a trade-off against
+class inheritance, but JS offers other ways to share logic between classes.
+
+
+## Browser support
+
+At this time, Monocle aims for full support of all browsers with a
+W3C-compliant CSS column module implementation. That is only Gecko and WebKit
+at this point. Legacy support is provided for some other browsers, including
+recent versions of Opera and Internet Explorer. Please encourage your
+browser-maker to work on implementing these standards in particular:
+
+* CSS Multi-Column Layout
+* W3C DOM Level 2 Event Model
+* CSS 2D Transforms (better: 3D Transforms, even better: hardware acceleration)
+
+Monocle has a particular focus on mobile devices. Monocle either supports or
+is trying to support:
+
+* iOS 3.1+
+* Android 2.0+
+* Blackberry 6
+* Kindle 3
+
+All these mobile platforms implement columned iframes differently, so support
+may be patchy in places, but we're working on it. Patches that improve or
+broaden Monocle's browser support are very welcome (but please provide tests).
+
+Inventive Labs would like to thank Ebooq for providing a device to assist with
+Android testing.
+
+
+## Future directions
+
+Monocle has a small set of big goals:
+
+* Faster, more responsive page flipping
+* Wider browser support (and better tests, automated as far as possible)
+* Tracking spec developments in EPUB and Zhook, supporting where appropriate
+
+We'd also like to provide more implementation showcases in the tests, and
+offer developer documentation in wiki form. Monocle wants to get leaner; we
+expect the controls to move out into an extension library.
+
+If you can help out with any of these things, fork away (or contact 'joseph'
+on GitHub).
