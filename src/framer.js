@@ -36,7 +36,7 @@ Monocle.Framer = function () {
     p.node.innerHTML = "";
     p.frame = document.createElement("IFRAME");
     p.frame.src = "javascript: null;";
-    p.frame.style.cssText = Monocle.Styles.ruleText('framer');
+    //p.frame.style.cssText = Monocle.Styles.ruleText('framer');
     p.node.appendChild(p.frame);
     p.cWin = p.frame.contentWindow;
     var html = '<html><head>';
@@ -71,9 +71,17 @@ Monocle.Framer = function () {
   function frameLoaded() {
     if (typeof p.cWin.Monocle != "undefined") {
       p.cWin.reader = p.cWin.Monocle.Reader('rdr', p.bookData, p.readerOptions);
-      if (typeof p.cWin.onMonocleReader == "function") {
+      p.cWin.Monocle.Events.listen(p.cWin.reader.dom.find('box'), 'monocle:loaded', function() {
+        if (typeof p.cWin.onMonocleReader == "function") {
+          p.cWin.onMonocleReader(p.cWin.reader);
+        }
+      }, false);
+      /*if (typeof p.cWin.onMonocleReader == "function") {
         p.cWin.onMonocleReader(p.cWin.reader);
-      }
+      }*/
+      /* Not sure it should be considered as MonocleReader be ready (the framer test showed that)
+       * it doesn't work since the book may not be available yet.
+       */
     } else {
       p.cWin.onMonoclePiece = function (piece) {
         if (piece == k.waitForPiece) { frameLoaded(); }
