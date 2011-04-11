@@ -195,7 +195,7 @@ Monocle.Reader = function (node, bookData, options, onLoadCallback) {
       page.m.activeFrame.style.visibility = "hidden";
       page.m.activeFrame.setAttribute('frameBorder', 0);
       page.m.activeFrame.setAttribute('scrolling', 'no');
-      Monocle.Events.listen(page.m.activeFrame, 'load', cb);
+      Monocle.Events.listen(page.m.activeFrame.contentWindow, 'load', cb);
       page.m.activeFrame.src = url;
     }
   }
