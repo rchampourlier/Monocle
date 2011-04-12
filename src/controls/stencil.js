@@ -21,6 +21,10 @@ Monocle.Controls.Stencil = function (reader) {
     p.reader.listen('monocle:componentchange', function (evt) {
       Monocle.defer(update);
     });
+    p.reader.listen('monocle:loaded', function(evt) {
+      Monocle.defer(update);
+      p.reader.deafen('monocle:loaded');
+    });
     p.reader.listen('monocle:interactive:on', disable);
     p.reader.listen('monocle:interactive:off', enable);
     p.baseURL = getBaseURL();
