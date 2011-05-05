@@ -1,9 +1,109 @@
+Monocle.Styles = {
+  // Takes a hash or string of CSS property assignments and applies them
+  // to the element.
+  //
+  applyRules: function (elem, rules) {
+    if (typeof rules != 'string') {
+      var parts = [];
+      for (var declaration in rules) {
+        parts.push(declaration+": "+rules[declaration]+";")
+      }
+      rules = parts.join(" ");
+    }
+    elem.style.cssText += ';'+rules;
+    return elem.style.cssText;
+  },
+
+  // Generates cross-browser properties for a given property.
+  // ie, affix(<elem>, 'transition', 'linear 100ms') would apply that value
+  // to webkitTransition for WebKit browsers, and to MozTransition for Gecko.
+  //
+  affix: function (elem, property, value) {
+    var target = elem.style ? elem.style : elem;
+    target[Monocle.Browser.CSSProps.toDOMProp(property)] = value;
+  },
+
+  setX: function (elem, x) {
+    var s = elem.style;
+    if (typeof x == "number") { x += "px"; }
+    if (Monocle.Browser.has.transform3d) {
+      s.webkitTransform = "translate3d("+x+", 0, 0)";
+    } else {
+      s.webkitTransform = "translateX("+x+")";
+    }
+    s.MozTransform = s.OTransform = s.transform = "translateX("+x+")";
+    return x;
+  },
+
+  setY: function (elem, y) {
+    var s = elem.style;
+    if (typeof y == "number") { y += "px"; }
+    if (Monocle.Browser.has.transform3d) {
+      s.webkitTransform = "translate3d(0, "+y+", 0)";
+    } else {
+      s.webkitTransform = "translateY("+y+")";
+    }
+    s.MozTransform = s.OTransform = s.transform = "translateY("+y+")";
+    return y;
+  }
+}
+
+
+// These rule definitions are more or less compulsory for Monocle to behave
+// as expected. Which is why they appear here and not in the stylesheet.
+// Adjust them if you know what you're doing.
+//
 Monocle.Styles.container = {
   "position": "absolute",
+  "top": "0",
+  "left": "0",
+  "bottom": "0",
+  "right": "0"
+}
+
+Monocle.Styles.page = {
+  "position": "absolute",
+  "z-index": "1",
+  "-webkit-user-select": "none",
+  "-moz-user-select": "none",
+  "user-select": "none",
+  "-webkit-transform": "translate3d(0,0,0)"
+
+  /*
+  "background": "white",
+  "top": "0",
+  "left": "0",
+  "bottom": "0",
+  "right": "0"
+  */
+}
+
+Monocle.Styles.sheaf = {
+  "position": "absolute",
+  "overflow": "hidden" // Required by MobileSafari to constrain inner iFrame.
+
+  /*
+  "top": "0",
+  "left": "0",
+  "bottom": "0",
+  "right": "0"
+  */
+}
+
+Monocle.Styles.component = {
+  "display": "block",
   "width": "100%",
   "height": "100%",
+  "border": "none",
+  "overflow": "hidden",
   "-webkit-user-select": "none",
-  "-webkit-text-size-adjust": "none"
+  "-moz-user-select": "none",
+  "user-select": "none"
+}
+
+Monocle.Styles.control = {
+  "z-index": "100",
+  "cursor": "pointer"
 }
 
 Monocle.Styles.overlay = {
@@ -14,60 +114,6 @@ Monocle.Styles.overlay = {
   "z-index": "1000"
 }
 
-Monocle.Styles.page = {
-  "position": "absolute",
-  "top": "0",
-  "left": "0",
-  "bottom": "3px",
-  "right": "5px",
-  "background": "#FFF",
-  "cursor": "pointer",
-  "z-index": "1",
-  "-webkit-box-shadow": "2px 0 2px #999",
-  "-moz-box-shadow": "2px 0 2px #999",
-  "-webkit-transform-style": "preserve-3d"
-}
 
-Monocle.Styles.scroller = {
-  "position": "absolute",
-  "top": "1em",
-  "bottom": "1em",
-  "left": "1em",
-  "right": "1em",
-  "overflow": "hidden"
-}
-
-Monocle.Styles.content = {
-  "position": "absolute",
-  "top": "0",
-  "bottom": "0",
-  "min-width": "200%",
-  "-webkit-text-size-adjust": "none",
-  "-webkit-column-gap": "0",
-  "-webkit-column-fill": "auto",
-  "-moz-column-gap": "0",
-  "-moz-column-fill": "auto"
-}
-
-Monocle.Styles.spinner = {
-  "width": "48px",
-  "height": "48px",
-  "position": "relative",
-  "display": "block",
-  "margin": "auto"
-}
-
-Monocle.Styles.control = {
-  "z-index": "100"  // Must be higher than any pages
-}
-
-Monocle.Styles.Controls = {
-  // A separate namespace for optional control styles, populated by those
-  // optional scripts.
-}
-
-Monocle.Styles.Flippers = {
-  // A separate namespace for flippers.
-}
 
 Monocle.pieceLoaded('styles');

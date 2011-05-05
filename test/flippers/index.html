@@ -1,26 +1,35 @@
-<!DOCTYPE html PUBLIC '-//W3C//DTD XHTML 1.1//EN' 'http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd'>
-
-<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en">
-
+<!DOCTYPE html>
+<html>
   <head>
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta http-equiv="Content-Type" content="text/htmlcharset=utf-8"/>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+    />
     <title>Flippers test</title>
 
     <!-- MONOCLE CORE -->
     <script type="text/javascript" src="../../src/monocle.js"></script>
     <script type="text/javascript" src="../../src/compat.js"></script>
+    <script type="text/javascript" src="../../src/events.js"></script>
+    <script type="text/javascript" src="../../src/factory.js"></script>
+    <script type="text/javascript" src="../../src/styles.js"></script>
     <script type="text/javascript" src="../../src/reader.js"></script>
     <script type="text/javascript" src="../../src/book.js"></script>
     <script type="text/javascript" src="../../src/component.js"></script>
     <script type="text/javascript" src="../../src/place.js"></script>
-    <script type="text/javascript" src="../../src/styles.js"></script>
+    <script type="text/javascript" src="../../src/controls/panel.js"></script>
+    <script type="text/javascript" src="../../src/panels/twopane.js"></script>
 
     <!-- MONOCLE FLIPPERS -->
+    <script type="text/javascript" src="../../src/dimensions/columns.js"></script>
     <script type="text/javascript" src="../../src/flippers/slider.js"></script>
     <script type="text/javascript" src="../../src/flippers/scroller.js"></script>
     <script type="text/javascript" src="../../src/flippers/instant.js"></script>
+    <script type="text/javascript" src="../../src/dimensions/vert.js"></script>
     <script type="text/javascript" src="../../src/flippers/legacy.js"></script>
+
+    <link rel="stylesheet" type="text/css" href="../../src/monocle.css" />
 
     <style type="text/css">
       .readerInfo {
@@ -35,27 +44,6 @@
         border: 1px solid #000;
         background-color: #CCC;
         overflow: hidden;
-      }
-      .reader p {
-        line-height: 130%;
-      }
-
-      .reader h3 {
-        text-align: center;
-      }
-      .reader p {
-        text-indent: 1em;
-        padding: 0;
-        margin: 0;
-      }
-      .reader h3 + p {
-        text-indent: 0;
-      }
-      .reader h3 + p:first-letter {
-        font-size: 300%;
-        font-weight: bold;
-        float: left;
-        padding: 6px 4px 0 0;
       }
       #part1, #part2 {
         display: none;
@@ -84,7 +72,7 @@
           ]
         },
         getComponent: function (cmptId) {
-          return document.getElementById(cmptId).innerHTML;
+          return { nodes: [document.getElementById(cmptId).cloneNode(true)] };
         },
         getMetaData: function(key) {
           return {
@@ -94,30 +82,39 @@
         }
       }
 
+      var fn = function (rdr) {
+        rdr.listen('monocle:boundarystart', function () { console.log('start!') });
+        rdr.listen('monocle:boundaryend', function () { console.log('end!') });
+      }
+
       // Initialize the reader element.
-      Monocle.addListener(
+      Monocle.Events.listen(
         window,
         'load',
         function () {
           window.reader1 = Monocle.Reader(
-            'slider',
+            'instant',
             bookData,
-            { flipper: Monocle.Flippers.Slider }
+            { flipper: Monocle.Flippers.Instant },
+            fn
           );
           window.reader2 = Monocle.Reader(
             'scroller',
             bookData,
-            { flipper: Monocle.Flippers.Scroller }
+            { flipper: Monocle.Flippers.Scroller },
+            fn
           );
           window.reader3 = Monocle.Reader(
-            'instant',
+            'slider',
             bookData,
-            { flipper: Monocle.Flippers.Instant }
+            { flipper: Monocle.Flippers.Slider },
+            fn
           );
           window.reader4 = Monocle.Reader(
             'legacy',
             bookData,
-            { flipper: Monocle.Flippers.Legacy }
+            { flipper: Monocle.Flippers.Legacy },
+            fn
           );
         }
       );
@@ -126,13 +123,11 @@
   </head>
 
   <body>
-
     <div class="readerInfo">
-      <h2>Slider</h2>
-      <div class="reader" id="slider"></div>
+      <h2>Instant</h2>
+      <div class="reader" id="instant"></div>
       <p>
-        Pages slide out of view to left (forwards) and
-        into view from left (back).
+        Click to turn to next/previous page instantly, with no animation.
       </p>
     </div>
 
@@ -145,10 +140,11 @@
     </div>
 
     <div class="readerInfo">
-      <h2>Instant</h2>
-      <div class="reader" id="instant"></div>
+      <h2>Slider</h2>
+      <div class="reader" id="slider"></div>
       <p>
-        Click to turn to next/previous page instantly, with no animation.
+        Pages slide out of view to left (forwards) and
+        into view from left (back).
       </p>
     </div>
 

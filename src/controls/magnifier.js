@@ -3,23 +3,11 @@ Monocle.Controls.Magnifier = function (reader) {
     return new Monocle.Controls.Magnifier(reader);
   }
 
-  // Constants.
-  var k = {
-    LARGE_FONT_SIZE: "115%",
-    NORMAL_FONT_SIZE: Monocle.Styles.content['font-size'] || "100%"
-  }
-
-  // Properties.
-  var p = {
-    buttons: [],
-    enlarged: false
-  }
-
   // Public methods and properties.
-  var API = {
-    constructor: Monocle.Controls.Magnifier,
-    constants: k,
-    properties: p
+  var API = { constructor: Monocle.Controls.Magnifier }
+  var k = API.constants = API.constructor;
+  var p = API.properties = {
+    buttons: []
   }
 
 
@@ -28,55 +16,33 @@ Monocle.Controls.Magnifier = function (reader) {
   }
 
 
-  function createControlElements() {
-    var btn = document.createElement('div');
-    btn.style.cssText = Monocle.Styles.ruleText(
-      Monocle.Styles.Controls.Magnifier.button
-    );
-    btn.smallA = document.createElement('span');
-    btn.smallA.style.cssText = Monocle.Styles.ruleText(
-      Monocle.Styles.Controls.Magnifier.smallA
-    )
-    btn.appendChild(btn.smallA);
-    btn.largeA = document.createElement('span');
-    btn.largeA.style.cssText = Monocle.Styles.ruleText(
-      Monocle.Styles.Controls.Magnifier.largeA
-    )
-    btn.largeA.innerHTML = btn.smallA.innerHTML = "A";
-    btn.appendChild(btn.largeA);
-
-    var evtType = typeof Touch == "object" ? "touchstart" : "mousedown";
-    Monocle.addListener(btn, evtType, toggleMagnification, true);
-
+  function createControlElements(holder) {
+    var btn = holder.dom.make('div', 'controls_magnifier_button');
+    btn.smallA = btn.dom.append('span', 'controls_magnifier_a', { text: 'A' });
+    btn.largeA = btn.dom.append('span', 'controls_magnifier_A', { text: 'A' });
     p.buttons.push(btn);
+    Monocle.Events.listenForTap(btn, toggleMagnification);
     return btn;
   }
 
 
   function toggleMagnification(evt) {
-    if (evt.preventDefault) {
-      evt.preventDefault();
-      evt.stopPropagation();
-    } else {
-      evt.returnValue = false;
-    }
     var opacities;
-    if (!p.enlarged) {
-      Monocle.Styles.content['font-size'] = k.LARGE_FONT_SIZE;
+    if (!p.sheetIndex) {
       opacities = [0.3, 1]
-      p.enlarged = true;
+      var reset = k.RESET_STYLESHEET;
+      reset += "html body { font-size: "+k.MAGNIFICATION*100+"% !important; }";
+      p.sheetIndex = p.reader.addPageStyles(reset);
     } else {
-      Monocle.Styles.content['font-size'] = k.NORMAL_FONT_SIZE;
       opacities = [1, 0.3]
-      p.enlarged = false;
+      p.reader.removePageStyles(p.sheetIndex);
+      p.sheetIndex = null;
     }
 
     for (var i = 0; i < p.buttons.length; i++) {
       p.buttons[i].smallA.style.opacity = opacities[0];
       p.buttons[i].largeA.style.opacity = opacities[1];
     }
-
-    p.reader.reapplyStyles();
   }
 
   API.createControlElements = createControlElements;
@@ -87,22 +53,29 @@ Monocle.Controls.Magnifier = function (reader) {
 }
 
 
-Monocle.Styles.Controls.Magnifier = {
-  button: {
-    "cursor": "pointer",
-    "color": "#555",
-    "position": "absolute",
-    "top": "2px",
-    "right": "10px",
-    "padding": "0 2px"
-  },
-  largeA: {
-    "font-size": "18px",
-    "opacity": "0.3"
-  },
-  smallA: {
-    "font-size": "11px"
-  }
-}
+Monocle.Controls.Magnifier.MAGNIFICATION = 1.15;
+
+// NB: If you don't like the reset, you could set this to an empty string.
+Monocle.Controls.Magnifier.RESET_STYLESHEET =
+  "html, body, div, span," +
+  //"h1, h2, h3, h4, h5, h6, " +
+  "p, blockquote, pre," +
+  "abbr, address, cite, code," +
+  "del, dfn, em, img, ins, kbd, q, samp," +
+  "small, strong, sub, sup, var," +
+  "b, i," +
+  "dl, dt, dd, ol, ul, li," +
+  "fieldset, form, label, legend," +
+  "table, caption, tbody, tfoot, thead, tr, th, td," +
+  "article, aside, details, figcaption, figure," +
+  "footer, header, hgroup, menu, nav, section, summary," +
+  "time, mark " +
+  "{ font-size: 100% !important; }" +
+  "h1 { font-size: 2em !important }" +
+  "h2 { font-size: 1.8em !important }" +
+  "h3 { font-size: 1.6em !important }" +
+  "h4 { font-size: 1.4em !important }" +
+  "h5 { font-size: 1.2em !important }" +
+  "h6 { font-size: 1.0em !important }";
 
 Monocle.pieceLoaded('controls/magnifier');

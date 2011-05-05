@@ -1,24 +1,29 @@
-<!DOCTYPE html PUBLIC '-//W3C//DTD XHTML 1.1//EN' 'http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd'>
-
-<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en">
-
+<!DOCTYPE html>
+<html>
   <head>
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta http-equiv="Content-Type" content="text/htmlcharset=utf-8"/>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+    />
     <title>Controls test</title>
 
     <!-- MONOCLE CORE -->
     <script type="text/javascript" src="../../src/monocle.js"></script>
     <script type="text/javascript" src="../../src/compat.js"></script>
+    <script type="text/javascript" src="../../src/events.js"></script>
+    <script type="text/javascript" src="../../src/factory.js"></script>
+    <script type="text/javascript" src="../../src/styles.js"></script>
     <script type="text/javascript" src="../../src/reader.js"></script>
     <script type="text/javascript" src="../../src/book.js"></script>
     <script type="text/javascript" src="../../src/component.js"></script>
     <script type="text/javascript" src="../../src/place.js"></script>
-    <script type="text/javascript" src="../../src/styles.js"></script>
 
     <!-- MONOCLE FLIPPERS -->
+    <script type="text/javascript" src="../../src/controls/panel.js"></script>
+    <script type="text/javascript" src="../../src/panels/marginal.js"></script>
+    <script type="text/javascript" src="../../src/dimensions/columns.js"></script>
     <script type="text/javascript" src="../../src/flippers/slider.js"></script>
-    <script type="text/javascript" src="../../src/flippers/legacy.js"></script>
 
     <!-- MONOCLE STANDARD CONTROLS -->
     <script type="text/javascript" src="../../src/controls/placesaver.js"></script>
@@ -26,6 +31,8 @@
     <script type="text/javascript" src="../../src/controls/scrubber.js"></script>
     <script type="text/javascript" src="../../src/controls/spinner.js"></script>
     <script type="text/javascript" src="../../src/controls/contents.js"></script>
+
+    <link rel="stylesheet" type="text/css" href="../../src/monocle.css" />
 
     <style type="text/css">
       .readerInfo {
@@ -41,29 +48,20 @@
         background-color: #CCC;
         overflow: hidden;
       }
-      .reader p {
-        line-height: 130%;
-      }
-
-      .reader h3 {
-        text-align: center;
-      }
-      .reader p {
-        text-indent: 1em;
-        padding: 0;
-        margin: 0;
-      }
-      .reader h3 + p {
-        text-indent: 0;
-      }
-      .reader h3 + p:first-letter {
-        font-size: 300%;
-        font-weight: bold;
-        float: left;
-        padding: 6px 4px 0 0;
-      }
       #part1, #part2 {
         display: none;
+      }
+      .runner {
+        font-variant: small-caps;
+        font-size: 87%;
+        color: #900;
+      }
+      .bookTitle {
+        position: absolute;
+        top: 1%;
+        width: 100%;
+        text-align: center;
+        cursor: pointer;
       }
     </style>
 
@@ -89,7 +87,7 @@
           ]
         },
         getComponent: function (cmptId) {
-          return document.getElementById(cmptId).innerHTML;
+          return { nodes: [document.getElementById(cmptId).cloneNode(true)] };
         },
         getMetaData: function(key) {
           return {
@@ -99,57 +97,94 @@
         }
       }
 
+
+      function createBookTitle(reader, contactListeners) {
+        var bt = {}
+        bt.createControlElements = function () {
+          cntr = document.createElement('div');
+          cntr.className = "bookTitle";
+          runner = document.createElement('div');
+          runner.className = "runner";
+          runner.innerHTML = reader.getBook().getMetaData('title');
+          cntr.appendChild(runner);
+          if (contactListeners) {
+            Monocle.Events.listenForContact(cntr, contactListeners);
+          }
+          return cntr;
+        }
+        reader.addControl(bt, 'page');
+        return bt;
+      }
+
       // Initialize the reader element.
-      Monocle.addListener(
+      Monocle.Events.listen(
         window,
         'load',
         function () {
+          var readerOptions = {
+            panels: Monocle.Panels.Marginal
+          };
 
           // PLACESAVER
-          window.reader1 = Monocle.Reader('placesaver', bookData);
-          var placeSaver = new Monocle.Controls.PlaceSaver(reader1);
-          reader1.addControl(placeSaver, 'invisible');
-          var lastPlace = placeSaver.savedPlace();
-          if (lastPlace) {
-            placeSaver.restorePlace();
-          }
+          var placeSaver = new Monocle.Controls.PlaceSaver('placesaver');
+          Monocle.Reader(
+            'placesaver',
+            bookData,
+            { panels: Monocle.Panels.Marginal, place: placeSaver.savedPlace() },
+            function (rdr) {
+              window.reader1 = rdr;
+              rdr.addControl(placeSaver, 'invisible');
+            }
+          );
 
           // MAGNIFIER
-          window.reader2 = Monocle.Reader('magnifier', bookData);
-          var magnifier = new Monocle.Controls.Magnifier(reader2);
-          reader2.addControl(magnifier, 'page');
+          Monocle.Reader('magnifier', bookData, readerOptions, function (rdr) {
+            window.reader2 = rdr;
+            var magnifier = new Monocle.Controls.Magnifier(rdr);
+            rdr.addControl(magnifier);
+          });
 
           // SCRUBBER
-          window.reader3 = Monocle.Reader('scrubber', bookData);
-          var scrubber = new Monocle.Controls.Scrubber(reader3);
-          reader3.addControl(scrubber, 'standard');
+          Monocle.Reader('scrubber', bookData, readerOptions, function (rdr) {
+            window.reader3 = rdr;
+            var scrubber = new Monocle.Controls.Scrubber(rdr);
+            rdr.addControl(scrubber);
+          });
 
           // SPINNER
-          window.reader4 = Monocle.Reader('spinner', bookData);
-          var spinner = Monocle.Controls.Spinner(reader4);
-          reader4.addControl(spinner, 'page', { hidden: true });
-          reader4.addListener(
-            'monocle:contact:start:unhandled',
-            function () {
-              if (spinner.spinning) {
-                spinner.spun();
-                spinner.spinning = false;
-              } else {
-                spinner.spin();
-                spinner.spinning = true;
+          Monocle.Reader('spinner', bookData, readerOptions, function (rdr) {
+            window.reader4 = rdr;
+            var spinner = Monocle.Controls.Spinner(rdr);
+            rdr.addControl(spinner, 'page', { hidden: true });
+            bookTitle = createBookTitle(
+              rdr,
+              {
+                start: function () {
+                  if (spinner.spinning) {
+                    spinner.spun();
+                    spinner.spinning = false;
+                  } else {
+                    spinner.spin();
+                    spinner.spinning = true;
+                  }
+                }
               }
-            }
-          );
+            );
+          });
 
-          window.reader5 = Monocle.Reader('toc', bookData);
-          var toc = Monocle.Controls.Contents(reader5);
-          reader5.addControl(toc, 'popover');
-          reader5.addListener(
-            'monocle:contact:start:unhandled',
-            function () {
-              reader5.showControl(toc);
-            }
-          );
+          Monocle.Reader('toc', bookData, readerOptions, function (rdr) {
+            window.reader5 = rdr;
+            var toc = Monocle.Controls.Contents(rdr);
+            rdr.addControl(toc, 'popover', { hidden: true });
+            createBookTitle(
+              rdr,
+              {
+                start: function () {
+                  rdr.showControl(toc);
+                }
+              }
+            );
+          });
         }
       );
     </script>
@@ -170,7 +205,7 @@
       <h2>Font Magnifier</h2>
       <div class="reader" id="magnifier"></div>
       <p>
-        Tap the AA icon in the top right corner to toggle large/normal fonts.
+        Click the AA icon in the top right corner to toggle large/normal fonts.
       </p>
     </div>
 
@@ -178,7 +213,7 @@
       <h2>Scrubber</h2>
       <div class="reader" id="scrubber"></div>
       <p>
-        Drag along the white rectangle at the base of page to change location.
+        Drag along the circle at the base of page to change location.
       </p>
     </div>
 
@@ -186,7 +221,7 @@
       <h2>Spinner</h2>
       <div class="reader" id="spinner"></div>
       <p>
-        Tap in middle of page to invoke a page-embedded spinner.
+        Click the book title to invoke a page-embedded spinner.
       </p>
     </div>
 
@@ -194,7 +229,8 @@
       <h2>Table of Contents</h2>
       <div class="reader" id="toc"></div>
       <p>
-        Tap middle of page to invoke modal window. Tap modal window to dismiss.
+        Click the book title to invoke modal window.
+        Click outside modal window to dismiss.
       </p>
     </div>
 

@@ -1,169 +1,230 @@
-Monocle.Flippers.Legacy = function (reader, setPageFn) {
-  if (Monocle.Flippers == this) {
-    return new Monocle.Flippers.Legacy(reader, setPageFn);
-  }
+Monocle.Flippers.Legacy = function (reader) {
 
-  // Constants
-  var k = {
-    LEGACY_MESSAGE: "Your browser doesn't support Monocle's full feature set. " +
-      'You could try <a href="http://mozilla.com/firefox">Firefox</a>, ' +
-      'Apple\'s <a href="http://apple.com/safari">Safari</a> or ' +
-      'Google\'s <a href="http://google.com/chrome">Chrome</a>.',
-    buttonText: {
-      PREV: "... Previous part",
-      NEXT: "Next part..."
-    }
-  }
-
-  // Properties
-  var p = {
+  var API = { constructor: Monocle.Flippers.Legacy }
+  var k = API.constants = API.constructor;
+  var p = API.properties = {
     pageCount: 1,
     divs: {}
-  }
-
-  var API = {
-    constructor: Monocle.Flippers.Legacy,
-    properties: p,
-    constants: k
   }
 
 
   function initialize() {
     p.reader = reader;
-    p.setPageFn = setPageFn;
   }
 
 
   function addPage(pageDiv) {
-    p.page = pageDiv;
-  }
-
-
-  function visiblePages() {
-    return [p.page];
+    pageDiv.m.dimensions = new Monocle.Dimensions.Vert(pageDiv);
   }
 
 
   function getPlace() {
-    return p.reader.getBook().placeFor(p.page.contentDiv);
+    return page().m.place;
   }
 
 
-  function moveTo(locus) {
-    var rslt = p.setPageFn(p.page, locus, updateButtons);
+  function moveTo(locus, callback) {
+    var fn = frameToLocus;
+    if (typeof callback == "function") {
+      fn = function (locus) { frameToLocus(locus); callback(locus); }
+    }
+    p.reader.getBook().setOrLoadPageAt(page(), locus, fn);
+  }
+
+
+  function listenForInteraction(panelClass) {
+    if (typeof panelClass != "function") {
+      panelClass = k.DEFAULT_PANELS_CLASS;
+      if (!panelClass) {
+        console.warn("Invalid panel class.")
+      }
+    }
+    p.panels = new panelClass(API, { 'end': turn });
+  }
+
+
+  function page() {
+    return p.reader.dom.find('page');
+  }
+
+
+  function turn(panel) {
+    var dir = panel.properties.direction;
+    var place = getPlace();
+    if (
+      (dir < 0 && place.onFirstPageOfBook()) ||
+      (dir > 0 && place.onLastPageOfBook())
+    ) { return; }
+    moveTo({ page: getPlace().pageNumber() + dir });
+  }
+
+
+  function frameToLocus(locus) {
+    var cmpt = p.reader.dom.find('component');
+    var win = cmpt.contentWindow;
+    var srcY = scrollPos(win);
+    var dims = page().m.dimensions;
+    var pageHeight = dims.properties.pageHeight;
+    var destY = dims.locusToOffset(locus);
+
+    //console.log(srcY + " => " + destY);
+    if (Math.abs(destY - srcY) > pageHeight) {
+      return win.scrollTo(0, destY);
+    }
+
+    showIndicator(win, srcY < destY ? srcY + pageHeight : srcY);
+    Monocle.defer(
+      function () { smoothScroll(win, srcY, destY, 300, scrollingFinished); },
+      150
+    );
+  }
+
+
+  function scrollPos(win) {
+    // Firefox, Chrome, Opera, Safari
+    if (win.pageYOffset) {
+      return win.pageYOffset;
+    }
+    // Internet Explorer 6 - standards mode
+    if (win.document.documentElement && win.document.documentElement.scrollTop) {
+      return win.document.documentElement.scrollTop;
+    }
+    // Internet Explorer 6, 7 and 8
+    if (win.document.body.scrollTop) {
+      return win.document.body.scrollTop;
+    }
+    return 0;
+  }
+
+
+  function smoothScroll(win, currY, finalY, duration, callback) {
+    clearTimeout(win.smoothScrollInterval);
+    var stamp = (new Date()).getTime();
+    var frameRate = 40;
+    var step = (finalY - currY) * (frameRate / duration);
+    var stepFn = function () {
+      var destY = currY + step;
+      if (
+        (new Date()).getTime() - stamp > duration ||
+        Math.abs(currY - finalY) < Math.abs((currY + step) - finalY)
+      ) {
+        clearTimeout(win.smoothScrollInterval);
+        win.scrollTo(0, finalY);
+        if (callback) { callback(); }
+      } else {
+        win.scrollTo(0, destY);
+        currY = destY;
+      }
+    }
+    win.smoothScrollInterval = setInterval(stepFn, frameRate);
+  }
+
+
+  function scrollingFinished() {
+    hideIndicator(page().m.activeFrame.contentWindow);
     p.reader.dispatchEvent('monocle:turn');
-    return rslt;
   }
 
 
+  function showIndicator(win, pos) {
+    if (p.hideTO) { clearTimeout(p.hideTO); }
 
-  function overrideDimensions() {
-    p.page.scrollerDiv.style.right = "0";
-    p.page.scrollerDiv.style.overflow = "auto";
-    p.page.contentDiv.style.position = "relative";
-    p.page.contentDiv.style.width = "100%";
-    p.page.contentDiv.style.minWidth = "0%";
-
-    if (!p.divs.legacyMessage) {
-      p.divs.legacyMessage = document.createElement('div');
-      p.divs.legacyMessage.innerHTML = k.LEGACY_MESSAGE;
-      p.divs.legacyMessage.style.cssText = Monocle.Styles.ruleText(
-        Monocle.Styles.Flippers.Legacy.message
-      );
-      p.page.scrollerDiv.insertBefore(p.divs.legacyMessage, p.page.contentDiv);
+    var doc = win.document;
+    if (!doc.body.indicator) {
+      doc.body.indicator = createIndicator(doc);
+      doc.body.appendChild(doc.body.indicator);
     }
-
-    if (!p.divs.prevButton) {
-      p.divs.prevButton = document.createElement('div');
-      p.divs.prevButton.innerHTML = k.buttonText.PREV;
-      p.divs.prevButton.style.cssText = Monocle.Styles.ruleText(
-        Monocle.Styles.Flippers.Legacy.button
-      );
-      p.page.scrollerDiv.insertBefore(p.divs.prevButton, p.page.contentDiv);
-    }
-
-    if (!p.divs.nextButton) {
-      p.divs.nextButton = document.createElement('div');
-      p.divs.nextButton.innerHTML = k.buttonText.NEXT;
-      p.divs.nextButton.style.cssText = Monocle.Styles.ruleText(
-        Monocle.Styles.Flippers.Legacy.button
-      );
-      p.page.scrollerDiv.appendChild(p.divs.nextButton);
-    }
+    doc.body.indicator.line.style.display = "block";
+    doc.body.indicator.style.opacity = 1;
+    positionIndicator(pos);
   }
 
 
-  function updateButtons() {
-    var cIndex = getPlace().properties.component.properties.index;
-    if (cIndex == 0) {
-      p.divs.legacyMessage.style.display = "block";
-      p.divs.prevButton.style.display = "none";
-    } else {
-      p.divs.legacyMessage.style.display = "none";
-      p.divs.prevButton.style.display = "block";
-    }
-
-    if (cIndex == p.reader.getBook().properties.lastCIndex) {
-      p.divs.nextButton.style.display = "none";
-    } else {
-      p.divs.nextButton.style.display = "block";
-    }
+  function hideIndicator(win) {
+    var doc = win.document;
+    p.hideTO = Monocle.defer(
+      function () {
+        if (!doc.body.indicator) {
+          doc.body.indicator = createIndicator(doc);
+          doc.body.appendChild(doc.body.indicator);
+        }
+        var dims = page().m.dimensions;
+        positionIndicator(
+          dims.locusToOffset(getPlace().getLocus()) + dims.properties.pageHeight
+        )
+        doc.body.indicator.line.style.display = "none";
+        doc.body.indicator.style.opacity = 0.5;
+      },
+      600
+    );
   }
 
 
-  function listenForInteraction() {
-    Monocle.addListener(
-      p.divs.prevButton,
-      'click',
-      function () { moveTo({ percent: -0.5 }) }
-    )
-    Monocle.addListener(
-      p.divs.nextButton,
-      'click',
-      function () { moveTo({ percent: 1.5 }) }
-    )
+  function createIndicator(doc) {
+    var iBox = doc.createElement('div');
+    doc.body.appendChild(iBox);
+    Monocle.Styles.applyRules(iBox, k.STYLES.iBox);
+
+    iBox.arrow = doc.createElement('div');
+    iBox.appendChild(iBox.arrow);
+    Monocle.Styles.applyRules(iBox.arrow, k.STYLES.arrow);
+
+    iBox.line = doc.createElement('div');
+    iBox.appendChild(iBox.line);
+    Monocle.Styles.applyRules(iBox.line, k.STYLES.line);
+
+    return iBox;
+  }
+
+
+  function positionIndicator(y) {
+    var p = page();
+    var doc = p.m.activeFrame.contentDocument;
+    var maxHeight = p.m.dimensions.properties.bodyHeight;
+    maxHeight -= doc.body.indicator.offsetHeight;
+    if (y > maxHeight) {
+      y = maxHeight;
+    }
+    doc.body.indicator.style.top = y + "px";
   }
 
 
   // THIS IS THE CORE API THAT ALL FLIPPERS MUST PROVIDE.
   API.pageCount = p.pageCount;
   API.addPage = addPage;
-  API.visiblePages = visiblePages;
   API.getPlace = getPlace;
   API.moveTo = moveTo;
   API.listenForInteraction = listenForInteraction;
-  API.overrideDimensions = overrideDimensions;
 
   initialize();
 
   return API;
 }
 
+Monocle.Flippers.Legacy.FORWARDS = 1;
+Monocle.Flippers.Legacy.BACKWARDS = -1;
+Monocle.Flippers.Legacy.DEFAULT_PANELS_CLASS = Monocle.Panels.TwoPane;
 
-Monocle.Styles.Flippers.Legacy = {
-  message: {
-    "border": "1px solid #987",
-    "background": "#FFC",
-    "color": "#333",
-    "font-family": "Helvetica, Arial, sans-serif",
-    "font-size": "11px",
-    "margin-right": "3px",
-    "margin-bottom": "3px",
-    "padding": "0.5em 1em"
+Monocle.Flippers.Legacy.STYLES = {
+  iBox: {
+    'position': 'absolute',
+    'right': 0,
+    'left': 0,
+    'height': '10px'
   },
-  button: {
-    "background": "#DDD",
-    "padding": "6px",
-    "border": "1px solid #666",
-    "color": "#009",
-    "font": "bold 12px Helvetica, Arial, sans-serif",
-    "text-shadow": "-1px -1px #EEE",
-    "border-radius": "5px",
-    "margin-right": "3px",
-    "margin-bottom": "3px",
-    "margin-top": "3px"
+  arrow: {
+    'position': 'absolute',
+    'right': 0,
+    'height': '10px',
+    'width': '10px',
+    'background': '#333',
+    'border-radius': '6px'
+  },
+  line: {
+    'width': '100%',
+    'border-top': '2px dotted #333',
+    'margin-top': '5px'
   }
 }
-
 
 Monocle.pieceLoaded('flippers/legacy');

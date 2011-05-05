@@ -1,13 +1,17 @@
-<!DOCTYPE html PUBLIC '-//W3C//DTD XHTML 1.1//EN' 'http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd'>
-
-<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en">
-
+<!DOCTYPE html>
+<html>
   <head>
-    <meta http-equiv="Content-Type" content="text/htmlcharset=utf-8"/>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+    />
     <title>Framer test</title>
 
     <script type="text/javascript" src="../../src/monocle.js"></script>
+    <script type="text/javascript" src="../../src/events.js"></script>
     <script type="text/javascript" src="../../src/compat.js"></script>
+    <script type="text/javascript" src="../../src/styles.js"></script>
     <script type="text/javascript" src="../../src/framer.js"></script>
 
     <style type="text/css">
@@ -61,15 +65,18 @@
         }
 
         var framer = Monocle.Framer();
-        framer.constants.stylesheets = ["framer.css"];
         framer.constants.scripts = [
           "../../src/monocle.js",
           "../../src/compat.js",
+          "../../src/events.js",
+          "../../src/factory.js",
+          "../../src/styles.js",
           "../../src/reader.js",
           "../../src/book.js",
           "../../src/component.js",
           "../../src/place.js",
-          "../../src/styles.js",
+          "../../src/controls/panel.js",
+          "../../src/panels/twopane.js",
           "../../src/flippers/slider.js",
           "../../src/flippers/legacy.js",
           "../../src/controls/contents.js",
@@ -82,7 +89,7 @@
         framer2.constants.scripts = ["../../dist/monocle-min.js"];
         framer2.newReader('reader2');
       }
-      Monocle.addListener(window, 'load', initFn);
+      Monocle.Events.listen(window, 'load', initFn);
     </script>
   </head>
 
@@ -91,11 +98,6 @@
     <p>
       Loads the reader in a dynamically generated iframe element (to sandbox
       the JavaScript and CSS).
-    </p>
-    <p>
-      Paragraphs should be #F0F, demonstrating custom CSS.
-      A Table of Contents dialog should appear when clicking in the middle
-      of the reader, demonstrating custom JS within the frame.
     </p>
 
     <div id="reader1" class="reader"></div>
